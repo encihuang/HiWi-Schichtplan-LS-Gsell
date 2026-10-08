@@ -31,15 +31,16 @@ export default async function Settings() {
           Beginn und Ende (optional) begrenzen die Werktage in der vorlesungsfreien Zeit.
         </p>
         <div className="mt-3 overflow-x-auto rounded-lg bg-white shadow-sm">
-          <div className="min-w-[760px] divide-y divide-neutral-100">
-            <div className="grid grid-cols-[1.5fr_0.7fr_1fr_1fr_0.5fr_auto] gap-2 bg-lmu px-3 py-2 text-sm font-semibold text-white">
-              <span>Name</span><span>h/Woche</span><span>Beginn</span><span>Ende</span><span>Aktiv</span><span className="w-40" />
+          <div className="min-w-[920px] divide-y divide-neutral-100">
+            <div className="grid grid-cols-[1.2fr_1.8fr_0.6fr_1fr_1fr_0.4fr_auto] gap-2 bg-lmu px-3 py-2 text-sm font-semibold text-white">
+              <span>Name</span><span>E-Mail</span><span>h/Woche</span><span>Beginn</span><span>Ende</span><span>Aktiv</span><span className="w-40" />
             </div>
             {staff.map((s) => (
               <div key={s.id} className="flex items-center gap-2 px-3 py-2">
-                <form action={saveStaff} className="grid flex-1 grid-cols-[1.5fr_0.7fr_1fr_1fr_0.5fr_auto] items-center gap-2">
+                <form action={saveStaff} className="grid flex-1 grid-cols-[1.2fr_1.8fr_0.6fr_1fr_1fr_0.4fr_auto] items-center gap-2">
                   <input type="hidden" name="id" value={s.id} />
                   <input name="name" defaultValue={s.name} required className={input} />
+                  <input type="email" name="email" defaultValue={s.email} placeholder="name@campus.lmu.de" className={input} />
                   <input name="hours" defaultValue={s.hours_per_week} inputMode="decimal" className={input} />
                   <input type="date" name="start" defaultValue={s.start_date ?? ''} className={input} />
                   <input type="date" name="end" defaultValue={s.end_date ?? ''} className={input} />
@@ -52,8 +53,9 @@ export default async function Settings() {
                 </form>
               </div>
             ))}
-            <form action={saveStaff} className="grid grid-cols-[1.5fr_0.7fr_1fr_1fr_0.5fr_auto] items-center gap-2 bg-lmu-lighter px-3 py-2">
+            <form action={saveStaff} className="grid grid-cols-[1.2fr_1.8fr_0.6fr_1fr_1fr_0.4fr_auto] items-center gap-2 bg-lmu-lighter px-3 py-2">
               <input name="name" placeholder="Neue Hilfskraft" required className={input} />
+              <input type="email" name="email" placeholder="E-Mail" className={input} />
               <input name="hours" placeholder="h" inputMode="decimal" className={input} />
               <input type="date" name="start" className={input} />
               <input type="date" name="end" className={input} />

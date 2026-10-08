@@ -1,11 +1,13 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import {
-  calcDaily, calcWeekly, getYear, listClosedDays, listDaily, listLog, listPeriods, listStaff, listWeekly,
+  calcDaily, calcWeekly, getYear, listAvailability, listClosedDays, listDaily, listDuties, listLectures, listLog,
+  listExceptions, listExtras, listPeriods, listStaff,
 } from '@/lib/data'
 import { canEditOthers, currentStaff } from '@/lib/session'
 import { formatDate, formatDateTime, isLecture, PERIOD_LABELS, todayIso, yearLabel } from '@/lib/dates'
 import { WeeklyPlan } from '@/components/weekly-plan'
+import { DateExceptions } from '@/components/date-exceptions'
 import { DailyPlan } from '@/components/daily-plan'
 import { CalcTable } from '@/components/calc-table'
 
@@ -41,10 +43,15 @@ export default async function PlanPage({
     canEditOthers(),
   ])
   const lecture = isLecture(period.kind)
-  const weekly = lecture ? await listWeekly(period.id) : []
+  const [weekly, availability, lectures, exceptions, extras] = lecture
+    ? await Promise.all([
+        listDuties(period.id), listAvailability(period.id), listLectures(period.id),
+        listExceptions(period.id), listExtras(period.id),
+      ])
+    : [[], [], [], [], []]
   const daily = lecture ? [] : await listDaily(period.id)
   const active = staff.filter((s) => s.active)
-  const calc = lecture ? calcWeekly(period, active, closed, weekly) : calcDaily(period, active, closed, daily)
+  const calc = lecture ? calcWeekly(period, active, closed, weekly, exceptions, extras) : calcDaily(period, active, closed, daily)
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const last = log[0]
 
@@ -97,7 +104,27 @@ export default async function PlanPage({
 
       <section className="mt-4">
         {lecture ? (
-          <WeeklyPlan period={period} slots={weekly} names={names} meId={me.id} canEditOthers={others} />
+          <WeeklyPlan
+            period={period}
+            staff={calc.rows.map((r) => r.staff)}
+            duties={weekly}
+            availability={availability}
+            lectures={lectures}
+            calendar={
+              <DateExceptions
+                period={period}
+                duties={weekly}
+                exceptions={exceptions}
+                extras={extras}
+                closed={closed}
+                names={names}
+                meId={me.id}
+              />
+            }
+            names={names}
+            meId={me.id}
+            canEditOthers={others}
+          />
         ) : (
           <DailyPlan period={period} slots={daily} closed={closed} names={names} meId={me.id} canEditOthers={others} />
         )}

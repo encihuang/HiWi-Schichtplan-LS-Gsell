@@ -5,9 +5,10 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { query } from '@/lib/db'
 import {
-  addLog, createYear, getPeriod, getStaff, listClosedDays, listYears, ROLE_LABELS, workdaysOf,
+  addLog, AVAILABILITY_LABELS, createYear, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
+  type AvailabilityStatus, type DutyKind,
 } from '@/lib/data'
-import { formatDate, PERIOD_KINDS, todayIso, WEEKDAYS, wsLecture, yearLabel, isLecture } from '@/lib/dates'
+import { formatDate, PERIOD_KINDS, todayIso, WEEKDAYS, weekday, wsLecture, yearLabel, isLecture } from '@/lib/dates'
 import {
   ACCESS_COOKIE, ADMIN_COOKIE, canEditOthers, currentStaff, requireAdmin, requireStaff, sha256, STAFF_COOKIE,
 } from '@/lib/session'
@@ -62,34 +63,190 @@ export async function addYear() {
 
 // --- Schichten ---------------------------------------------------------------
 
-export async function toggleWeekly(fd: FormData) {
+/** Zeile einer anderen Person nur mit Einstellungs-Anmeldung (ADMIN_PASSWORD). */
+async function targetStaff(fd: FormData) {
   const me = await requireStaff()
+  const id = num(fd, 'staff') || me.id
+  if (id !== me.id && !(await canEditOthers())) return null
+  const s = id === me.id ? me : await getStaff(id)
+  return s ? { me, target: s } : null
+}
+
+async function lecturePeriod(fd: FormData) {
   const period = await getPeriod(num(fd, 'period'))
+  return period && isLecture(period.kind) ? period : null
+}
+
+const dayOk = (d: number) => d >= 1 && d <= 5
+const forWhom = (me: { id: number }, t: { id: number; name: string }) => (t.id === me.id ? '' : ` für ${t.name}`)
+
+export async function setDuty(fd: FormData) {
+  const who = await targetStaff(fd)
+  const period = await lecturePeriod(fd)
   const day = num(fd, 'weekday')
-  const role = str(fd, 'role') as 'ap' | 'support'
-  if (!period || !isLecture(period.kind) || !(day >= 1 && day <= 5) || !(role in ROLE_LABELS)) return
-  const label = `${WEEKDAYS[day - 1]} · ${ROLE_LABELS[role]}`
-  const [slot] = await query<{ staff_id: number }>(
-    'select staff_id from weekly_slots where period_id = $1 and weekday = $2 and role = $3',
-    [period.id, day, role],
-  )
-  if (slot) {
-    if (slot.staff_id !== me.id && !(await canEditOthers())) return
-    await query('delete from weekly_slots where period_id = $1 and weekday = $2 and role = $3', [period.id, day, role])
-    const who = slot.staff_id === me.id ? '' : ` (${(await getStaff(slot.staff_id))?.name})`
-    await addLog(period.id, me.name, `${label} freigegeben${who}`)
-  } else {
-    // Niemand übernimmt am selben Tag beide Rollen.
-    const [dup] = await query('select 1 from weekly_slots where period_id = $1 and weekday = $2 and staff_id = $3', [
-      period.id, day, me.id,
-    ])
-    if (dup) return
+  const kind = str(fd, 'kind')
+  if (!who || !period || !dayOk(day)) return
+  const label = WEEKDAYS[day - 1]
+  if (!kind) {
     const done = await query(
-      `insert into weekly_slots (period_id, weekday, role, staff_id, updated_by) values ($1, $2, $3, $4, $5)
-       on conflict do nothing returning 1`,
-      [period.id, day, role, me.id, me.name],
+      'delete from weekly_duties where period_id = $1 and staff_id = $2 and weekday = $3 returning 1',
+      [period.id, who.target.id, day],
     )
-    if (done.length) await addLog(period.id, me.name, `${label} übernommen`)
+    if (done.length) await addLog(period.id, who.me.name, `${label}: Dienst entfernt${forWhom(who.me, who.target)}`)
+  } else if (kind in DUTY_LABELS) {
+    await query(
+      `insert into weekly_duties (period_id, staff_id, weekday, kind, updated_by) values ($1, $2, $3, $4, $5)
+       on conflict (period_id, staff_id, weekday) do update set kind = $4, updated_by = $5, updated_at = now()`,
+      [period.id, who.target.id, day, kind, who.me.name],
+    )
+    await addLog(
+      period.id,
+      who.me.name,
+      `${label}: ${DUTY_LABELS[kind as DutyKind]}${forWhom(who.me, who.target)}`,
+    )
+  }
+  revalidatePath('/plan', 'layout')
+}
+
+export async function setAvailability(fd: FormData) {
+  const who = await targetStaff(fd)
+  const period = await lecturePeriod(fd)
+  const day = num(fd, 'weekday')
+  const status = str(fd, 'status')
+  if (!who || !period || !dayOk(day)) return
+  if (!status) {
+    await query('delete from availability where period_id = $1 and staff_id = $2 and weekday = $3', [
+      period.id, who.target.id, day,
+    ])
+  } else if (status in AVAILABILITY_LABELS) {
+    await query(
+      `insert into availability (period_id, staff_id, weekday, status) values ($1, $2, $3, $4)
+       on conflict (period_id, staff_id, weekday) do update set status = $4, updated_at = now()`,
+      [period.id, who.target.id, day, status],
+    )
+  }
+  await addLog(
+    period.id,
+    who.me.name,
+    `${WEEKDAYS[day - 1]}: Verfügbarkeit ${status ? `„${AVAILABILITY_LABELS[status as AvailabilityStatus]}“` : 'zurückgesetzt'}${forWhom(who.me, who.target)}`,
+  )
+  revalidatePath('/plan', 'layout')
+}
+
+/** Vorlesung oder weitere Aufgabe an einem oder mehreren Wochentagen anlegen. */
+export async function addLecture(fd: FormData) {
+  const me = await requireStaff()
+  const period = await lecturePeriod(fd)
+  const name = str(fd, 'name')
+  const time = str(fd, 'time')
+  const days = fd.getAll('weekday').map(Number).filter(dayOk)
+  if (!period || !name || !days.length) return
+  for (const d of days) {
+    await query(
+      `insert into lectures (period_id, name, weekday, time) values ($1, $2, $3, $4)
+       on conflict (period_id, name, weekday) do update set time = $4`,
+      [period.id, name, d, time],
+    )
+  }
+  await addLog(period.id, me.name, `„${name}“ angelegt (${days.map((d) => WEEKDAYS[d - 1].slice(0, 2)).join(', ')})`)
+  revalidatePath('/plan', 'layout')
+}
+
+export async function deleteLecture(fd: FormData) {
+  const me = await requireStaff()
+  const period = await lecturePeriod(fd)
+  const name = str(fd, 'name')
+  if (!period || !name) return
+  await query('delete from lectures where period_id = $1 and name = $2', [period.id, name])
+  await addLog(period.id, me.name, `„${name}“ gelöscht`)
+  revalidatePath('/plan', 'layout')
+}
+
+/** Betreuung einer Vorlesung an einem Tag übernehmen bzw. freigeben. */
+export async function toggleLecture(fd: FormData) {
+  const me = await requireStaff()
+  const [l] = await query<{ id: number; period_id: number; name: string; weekday: number; staff_id: number | null }>(
+    'select id, period_id, name, weekday, staff_id from lectures where id = $1',
+    [num(fd, 'lecture')],
+  )
+  if (!l) return
+  const label = `„${l.name}“ ${WEEKDAYS[l.weekday - 1]}`
+  if (l.staff_id) {
+    if (l.staff_id !== me.id && !(await canEditOthers())) return
+    await query('update lectures set staff_id = null, updated_by = $2, updated_at = now() where id = $1', [l.id, me.name])
+    const who = l.staff_id === me.id ? '' : ` (${(await getStaff(l.staff_id))?.name})`
+    await addLog(l.period_id, me.name, `${label} freigegeben${who}`)
+  } else {
+    const done = await query(
+      'update lectures set staff_id = $2, updated_by = $3, updated_at = now() where id = $1 and staff_id is null returning 1',
+      [l.id, me.id, me.name],
+    )
+    if (done.length) await addLog(l.period_id, me.name, `${label} übernommen`)
+  }
+  revalidatePath('/plan', 'layout')
+}
+
+/**
+ * Ausnahmen in der Vorlesungszeit:
+ * absent = ich kann an diesem Datum nicht, present = doch da,
+ * cover = Vertretung für "staff" übernehmen, uncover = Vertretung abgeben,
+ * extra / unextra = an diesem Datum zusätzlich Dienst.
+ */
+export async function dateException(fd: FormData) {
+  const me = await requireStaff()
+  const period = await lecturePeriod(fd)
+  const date = isoOrNull(str(fd, 'date'))
+  const op = str(fd, 'op')
+  if (!period || !date) return
+  if (!workdaysOf(period, await listClosedDays(period.year_id)).includes(date)) return
+  const day = formatDate(date)
+
+  if (op === 'absent' || op === 'present') {
+    const [duty] = await query('select 1 from weekly_duties where period_id = $1 and staff_id = $2 and weekday = $3', [
+      period.id, me.id, weekday(date),
+    ])
+    if (!duty) return
+    if (op === 'absent') {
+      await query(
+        `insert into date_exceptions (period_id, date, staff_id, updated_by) values ($1, $2, $3, $4)
+         on conflict do nothing`,
+        [period.id, date, me.id, me.name],
+      )
+      await addLog(period.id, me.name, `${day}: kann nicht (Vertretung gesucht)`)
+    } else {
+      await query('delete from date_exceptions where period_id = $1 and date = $2 and staff_id = $3', [period.id, date, me.id])
+      await addLog(period.id, me.name, `${day}: doch da`)
+    }
+  } else if (op === 'extra') {
+    const done = await query(
+      'insert into date_extras (period_id, date, staff_id, updated_by) values ($1, $2, $3, $4) on conflict do nothing returning 1',
+      [period.id, date, me.id, me.name],
+    )
+    if (done.length) await addLog(period.id, me.name, `${day}: zusätzlich Dienst`)
+  } else if (op === 'unextra') {
+    const done = await query('delete from date_extras where period_id = $1 and date = $2 and staff_id = $3 returning 1', [
+      period.id, date, me.id,
+    ])
+    if (done.length) await addLog(period.id, me.name, `${day}: zusätzlicher Dienst entfernt`)
+  } else if (op === 'cover' || op === 'uncover') {
+    const absentId = num(fd, 'staff')
+    const absent = await getStaff(absentId)
+    if (!absent) return
+    if (op === 'cover') {
+      const done = await query(
+        `update date_exceptions set substitute_id = $4, updated_by = $5, updated_at = now()
+         where period_id = $1 and date = $2 and staff_id = $3 and substitute_id is null returning 1`,
+        [period.id, date, absentId, me.id, me.name],
+      )
+      if (done.length) await addLog(period.id, me.name, `${day}: Vertretung für ${absent.name} übernommen`)
+    } else {
+      const done = await query(
+        `update date_exceptions set substitute_id = null, updated_by = $5, updated_at = now()
+         where period_id = $1 and date = $2 and staff_id = $3 and substitute_id = $4 returning 1`,
+        [period.id, date, absentId, me.id, me.name],
+      )
+      if (done.length) await addLog(period.id, me.name, `${day}: Vertretung für ${absent.name} abgegeben`)
+    }
   }
   revalidatePath('/plan', 'layout')
 }
@@ -131,18 +288,20 @@ export async function saveStaff(fd: FormData) {
   const start = isoOrNull(str(fd, 'start'))
   const end = isoOrNull(str(fd, 'end'))
   const active = fd.get('active') === 'on'
+  const email = str(fd, 'email')
   if (!name) return
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return
   if (id) {
     await query(
-      'update staff set name = $2, hours_per_week = $3, start_date = $4, end_date = $5, active = $6 where id = $1',
-      [id, name, hours, start, end, active],
+      'update staff set name = $2, hours_per_week = $3, start_date = $4, end_date = $5, active = $6, email = $7 where id = $1',
+      [id, name, hours, start, end, active, email],
     )
     await addLog(null, await actorName(), `Hilfskraft ${name} geändert`)
   } else {
     await query(
-      `insert into staff (name, hours_per_week, start_date, end_date, active) values ($1, $2, $3, $4, true)
+      `insert into staff (name, hours_per_week, start_date, end_date, active, email) values ($1, $2, $3, $4, true, $5)
        on conflict (name) do nothing`,
-      [name, hours, start, end],
+      [name, hours, start, end, email],
     )
     await addLog(null, await actorName(), `Hilfskraft ${name} hinzugefügt`)
   }

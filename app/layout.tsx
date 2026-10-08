@@ -32,6 +32,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <Link href="/plan" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
                 Plan
               </Link>
+              <Link href="/uebersicht" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
+                Übersicht
+              </Link>
               <Link href="/einstellungen" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
                 Einstellungen
               </Link>

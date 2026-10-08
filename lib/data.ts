@@ -12,19 +12,47 @@ export type Staff = {
   start_date: string | null
   end_date: string | null
   active: boolean
+  email: string
 }
 export type Year = { id: number; start_year: number }
 export type Period = { id: number; year_id: number; kind: PeriodKind; start_date: string; end_date: string }
 export type ClosedDay = { date: string; name: string }
-export type WeeklySlot = { weekday: number; role: 'ap' | 'support'; staff_id: number; updated_by: string; updated_at: string }
+export type DutyKind = 'alle' | 'geteilt' | 'vor_ort' | 'remote'
+export type Duty = { staff_id: number; weekday: number; kind: DutyKind; updated_by: string; updated_at: string }
+/** Ausnahme an einem Datum: staff_id fällt aus, substitute_id vertritt (oder noch offen) */
+export type DateException = { date: string; staff_id: number; substitute_id: number | null; updated_by: string; updated_at: string }
+/** zusätzlicher Dienst an einem einzelnen Datum */
+export type DateExtra = { date: string; staff_id: number; updated_by: string; updated_at: string }
+export type AvailabilityStatus = 'ok' | 'ungern' | 'nein'
+export type Availability = { staff_id: number; weekday: number; status: AvailabilityStatus }
+export type Lecture = {
+  id: number
+  name: string
+  weekday: number
+  time: string
+  staff_id: number | null
+  updated_by: string | null
+  updated_at: string | null
+}
 export type DailySlot = { date: string; staff_id: number; updated_by: string; updated_at: string }
 export type LogEntry = { actor: string; message: string; at: string }
 
-export const ROLE_LABELS = { ap: 'Ansprechpartner', support: 'Support' } as const
+export const DUTY_LABELS: Record<DutyKind, string> = {
+  alle: 'Alle Aufgaben',
+  geteilt: 'Geteilt',
+  vor_ort: 'Vor Ort',
+  remote: 'Remote',
+}
+
+export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
+  ok: 'Dienst möglich ohne Einschränkungen',
+  ungern: 'Dienst lieber nicht möglich',
+  nein: 'Kein Dienst möglich',
+}
 
 export async function listStaff(onlyActive = false) {
   const rows = await query<Staff>(
-    `select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active
+    `select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email
      from staff ${onlyActive ? 'where active' : ''} order by name`,
   )
   return rows
@@ -32,7 +60,7 @@ export async function listStaff(onlyActive = false) {
 
 export async function getStaff(id: number) {
   const [s] = await query<Staff>(
-    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active from staff where id = $1',
+    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email from staff where id = $1',
     [id],
   )
   return s
@@ -58,9 +86,30 @@ export async function getPeriod(id: number) {
 export const listClosedDays = (yearId: number) =>
   query<ClosedDay>('select date, name from closed_days where year_id = $1 order by date', [yearId])
 
-export const listWeekly = (periodId: number) =>
-  query<WeeklySlot>(
-    'select weekday, role, staff_id, updated_by, updated_at from weekly_slots where period_id = $1',
+export const listDuties = (periodId: number) =>
+  query<Duty>(
+    'select staff_id, weekday, kind, updated_by, updated_at from weekly_duties where period_id = $1',
+    [periodId],
+  )
+
+export const listExceptions = (periodId: number) =>
+  query<DateException>(
+    'select date, staff_id, substitute_id, updated_by, updated_at from date_exceptions where period_id = $1 order by date',
+    [periodId],
+  )
+
+export const listExtras = (periodId: number) =>
+  query<DateExtra>(
+    'select date, staff_id, updated_by, updated_at from date_extras where period_id = $1 order by date',
+    [periodId],
+  )
+
+export const listAvailability = (periodId: number) =>
+  query<Availability>('select staff_id, weekday, status from availability where period_id = $1', [periodId])
+
+export const listLectures = (periodId: number) =>
+  query<Lecture>(
+    'select id, name, weekday, time, staff_id, updated_by, updated_at from lectures where period_id = $1 order by name, weekday',
     [periodId],
   )
 
@@ -193,11 +242,24 @@ export function calcDaily(period: Period, staff: Staff[], closed: ClosedDay[], s
 }
 
 /** Vorlesungszeit: gleiche Rechnung; eingeteilt = Werktage im Zeitraum an den eigenen Wochentagen. */
-export function calcWeekly(period: Period, staff: Staff[], closed: ClosedDay[], slots: WeeklySlot[]): CalcResult {
+export function calcWeekly(
+  period: Period, staff: Staff[], closed: ClosedDay[], slots: Duty[], exceptions: DateException[] = [],
+  extras: DateExtra[] = [],
+): CalcResult {
   const days = workdaysOf(period, closed)
   const rows = baseRows(period, staff, days).map(({ own, ...r }) => {
     const mine = new Set(slots.filter((x) => x.staff_id === r.staff.id).map((x) => x.weekday))
-    const assigned = own.filter((d) => mine.has(weekday(d))).length
+    const absent = new Set(exceptions.filter((e) => e.staff_id === r.staff.id).map((e) => e.date))
+    const regular = own.filter((d) => mine.has(weekday(d)) && !absent.has(d)).length
+    // Vertretung zählt nur, wenn die ausfallende Person an dem Wochentag noch Dienst hat
+    const substitutions = exceptions.filter(
+      (e) =>
+        e.substitute_id === r.staff.id &&
+        days.includes(e.date) &&
+        slots.some((x) => x.staff_id === e.staff_id && x.weekday === weekday(e.date)),
+    ).length
+    const extra = extras.filter((e) => e.staff_id === r.staff.id && days.includes(e.date)).length
+    const assigned = regular + substitutions + extra
     return {
       ...r,
       assigned,
@@ -207,4 +269,37 @@ export function calcWeekly(period: Period, staff: Staff[], closed: ClosedDay[], 
     }
   })
   return { rows, ...summary(period, closed, days) }
+}
+
+/** Hinweise zur Besetzung eines Wochentags */
+export function coverageIssues(day: number, duties: Duty[], availability: Availability[], names: Record<number, string>) {
+  const today = duties.filter((d) => d.weekday === day)
+  const issues: string[] = []
+  if (!today.length) issues.push('unbesetzt')
+  const shared = today.filter((d) => d.kind === 'geteilt')
+  if (shared.length === 1 && today.length === 1) issues.push('„Geteilt“, aber nur eine Person')
+  for (const d of today) {
+    const a = availability.find((x) => x.staff_id === d.staff_id && x.weekday === day)?.status
+    if (a === 'nein') issues.push(`${names[d.staff_id]} hat „kein Dienst möglich“`)
+  }
+  return issues
+}
+
+// --- Dienst an einem Datum ------------------------------------------------------
+
+export type RosterEntry = { staff_id: number; label: string; problem?: boolean }
+
+/** Vorlesungszeit: Wochenplan an Datum d mit Ausfällen, Vertretungen und Zusatzdiensten. */
+export function lectureRoster(
+  d: string, duties: Duty[], exceptions: DateException[], extras: DateExtra[], names: Record<number, string>,
+): RosterEntry[] {
+  const out: RosterEntry[] = []
+  for (const x of duties.filter((y) => y.weekday === weekday(d))) {
+    const e = exceptions.find((y) => y.date === d && y.staff_id === x.staff_id)
+    if (!e) out.push({ staff_id: x.staff_id, label: DUTY_LABELS[x.kind] })
+    else if (e.substitute_id) out.push({ staff_id: e.substitute_id, label: `Vertretung für ${names[x.staff_id]}` })
+    else out.push({ staff_id: x.staff_id, label: 'fällt aus, Vertretung offen', problem: true })
+  }
+  for (const x of extras.filter((y) => y.date === d)) out.push({ staff_id: x.staff_id, label: 'zusätzlich' })
+  return out
 }

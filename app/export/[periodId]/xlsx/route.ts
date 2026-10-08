@@ -1,9 +1,11 @@
 import ExcelJS from 'exceljs'
 import { APP_TITLE, CHAIR } from '@/lib/brand'
 import { calcHeader, contentDisposition, loadExport } from '@/lib/export'
+import { AVAILABILITY_LABELS } from '@/lib/data'
 import { currentStaff } from '@/lib/session'
 
 const GREEN = 'FF00883A'
+const AVAILABILITY_ARGB = { ok: 'FF8CC152', ungern: 'FFF2A24B', nein: 'FFEC5A3F' } as const
 const thin = { style: 'thin' as const, color: { argb: 'FFCCCCCC' } }
 const border = { top: thin, left: thin, bottom: thin, right: thin }
 
@@ -38,16 +40,41 @@ export async function GET(_: Request, ctx: RouteContext<'/export/[periodId]/xlsx
 
   const [head, ...body] = data.grid
   header(ws.addRow(head))
-  for (const r of body) {
+  body.forEach((r, ri) => {
     const row = ws.addRow(r)
-    row.height = data.lecture ? 28 : 32
+    const lines = Math.max(...r.map((v) => v.split('\n').length))
+    row.height = Math.max(data.lecture ? 24 : 32, lines * 14)
     row.eachCell({ includeEmpty: true }, (c, col) => {
-      c.alignment = { horizontal: col === 1 && data.lecture ? 'left' : 'center', vertical: 'middle', wrapText: true }
+      c.alignment = { horizontal: data.lecture ? 'left' : 'center', vertical: 'middle', wrapText: true }
       c.border = border
       if (col === 1) c.font = { bold: true }
+      const status = data.gridStatus?.[ri + 1]?.[col - 1]
+      if (status) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AVAILABILITY_ARGB[status] } }
     })
+  })
+  if (data.gridStatus) {
+    ws.addRow([])
+    for (const [k, label] of Object.entries(AVAILABILITY_LABELS) as [keyof typeof AVAILABILITY_ARGB, string][]) {
+      const row = ws.addRow(['', label])
+      row.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AVAILABILITY_ARGB[k] } }
+    }
   }
-  ws.getColumn(1).width = data.lecture ? 20 : 6
+  for (const t of data.extra) {
+    ws.addRow([])
+    ws.addRow([t.title]).font = { bold: true, size: 12 }
+    const [th, ...tb] = t.grid
+    header(ws.addRow(th))
+    for (const r of tb) {
+      const row = ws.addRow(r)
+      row.height = Math.max(18, Math.max(...r.map((v) => v.split('\n').length)) * 14)
+      row.eachCell({ includeEmpty: true }, (c, col) => {
+        c.alignment = { vertical: 'middle', wrapText: true }
+        c.border = border
+        if (col === 1) c.font = { bold: true }
+      })
+    }
+  }
+  ws.getColumn(1).width = data.lecture ? 24 : 8
   for (let i = 2; i <= 6; i++) ws.getColumn(i).width = 20
 
   const calc = wb.addWorksheet('Berechnung')
@@ -85,6 +112,18 @@ export async function GET(_: Request, ctx: RouteContext<'/export/[periodId]/xlsx
   if (data.lecture) calc.getColumn(10).numFmt = '0.0'
   calc.getColumn(cols).numFmt = '+0.0;-0.0;0.0'
   calc.columns.forEach((c, i) => (c.width = i === 0 ? 20 : 13))
+
+  const contacts = Object.entries(data.emails)
+  if (contacts.length) {
+    const k = wb.addWorksheet('Kontakte')
+    header(k.addRow(['Name', 'E-Mail']))
+    for (const [name, email] of contacts) {
+      const row = k.addRow([name, { text: email, hyperlink: `mailto:${email}` }])
+      row.getCell(2).font = { color: { argb: 'FF006A2D' }, underline: true }
+    }
+    k.getColumn(1).width = 20
+    k.getColumn(2).width = 36
+  }
 
   const buf = await wb.xlsx.writeBuffer()
   return new Response(buf as ArrayBuffer, {

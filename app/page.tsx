@@ -11,6 +11,12 @@ export default async function Home() {
     <div className="max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold text-lmu-darker">Wer bist du?</h1>
       <p className="mt-1 text-neutral-600">Wähle deinen Namen, danach das Studienjahr und deine Schichten.</p>
+      <p className="mt-1 text-sm text-neutral-500">
+        Prof. Gsell und Sekretariat:{' '}
+        <Link href="/uebersicht" className="text-lmu underline">
+          Übersicht, wer wann Dienst hat
+        </Link>
+      </p>
 
       {staff.length === 0 ? (
         <div className="mt-6 rounded-lg border border-dashed border-lmu p-6 bg-white">
