@@ -52,26 +52,39 @@ export async function GET(_: Request, ctx: RouteContext<'/export/[periodId]/xlsx
 
   const calc = wb.addWorksheet('Berechnung')
   calc.addRow([data.title]).font = { bold: true, size: 12 }
+  calc.addRow([data.subtitle])
   calc.addRow([data.stand]).font = { bold: true }
+  for (const f of data.facts) calc.addRow([f])
   calc.addRow([])
   header(calc.addRow(calcHeader(data.lecture)))
-  for (const r of data.calc) {
+  const toDate = (iso: string) => new Date(iso + 'T00:00:00Z')
+  for (const r of data.calc.rows) {
     const row = calc.addRow([
       r.staff.name,
       r.staff.hours_per_week,
-      ...(data.lecture ? [] : [r.workdays]),
+      toDate(r.from),
+      toDate(r.to),
+      r.workdays,
+      r.weighted,
       r.share,
       r.target,
+      r.targetRounded,
+      ...(data.lecture ? [r.perWeekTarget ?? 0, r.perWeekAssigned ?? 0] : []),
       r.assigned,
       r.delta,
     ])
     row.eachCell((c) => (c.border = border))
   }
-  const off = data.lecture ? 0 : 1
-  calc.getColumn(3 + off).numFmt = '0.0 %'
-  calc.getColumn(4 + off).numFmt = '0.0'
-  calc.getColumn(6 + off).numFmt = '+0.0;-0.0;0.0'
-  calc.columns.forEach((c, i) => (c.width = i === 0 ? 20 : 15))
+  // Spaltenformate: 3/4 Datum, 6 gewichtet, 7 Anteil, 8 Soll, (10 Soll/Woche), letzte = Differenz
+  const cols = calcHeader(data.lecture).length
+  calc.getColumn(3).numFmt = 'dd.mm.yyyy'
+  calc.getColumn(4).numFmt = 'dd.mm.yyyy'
+  calc.getColumn(6).numFmt = '0.0'
+  calc.getColumn(7).numFmt = '0.0 %'
+  calc.getColumn(8).numFmt = '0.0'
+  if (data.lecture) calc.getColumn(10).numFmt = '0.0'
+  calc.getColumn(cols).numFmt = '+0.0;-0.0;0.0'
+  calc.columns.forEach((c, i) => (c.width = i === 0 ? 20 : 13))
 
   const buf = await wb.xlsx.writeBuffer()
   return new Response(buf as ArrayBuffer, {

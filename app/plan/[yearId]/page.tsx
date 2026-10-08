@@ -44,7 +44,7 @@ export default async function PlanPage({
   const weekly = lecture ? await listWeekly(period.id) : []
   const daily = lecture ? [] : await listDaily(period.id)
   const active = staff.filter((s) => s.active)
-  const rows = lecture ? calcWeekly(period, active, weekly) : calcDaily(period, active, closed, daily)
+  const calc = lecture ? calcWeekly(period, active, closed, weekly) : calcDaily(period, active, closed, daily)
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const last = log[0]
 
@@ -103,14 +103,14 @@ export default async function PlanPage({
         )}
       </section>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[3fr_2fr]">
+      <div className="mt-8 space-y-8">
         <section>
           <h2 className="text-lg font-semibold text-lmu-darker">Berechnung</h2>
-          <CalcTable rows={rows} lecture={lecture} meId={me.id} />
+          <CalcTable calc={calc} period={period} lecture={lecture} meId={me.id} />
         </section>
         <section>
           <h2 className="text-lg font-semibold text-lmu-darker">Letzte Änderungen</h2>
-          <ul className="mt-2 divide-y divide-neutral-200 rounded-lg bg-white text-sm shadow-sm">
+          <ul className="mt-2 max-w-2xl divide-y divide-neutral-200 rounded-lg bg-white text-sm shadow-sm">
             {log.length === 0 && <li className="p-3 text-neutral-500">Noch keine.</li>}
             {log.map((l, i) => (
               <li key={i} className="p-3">

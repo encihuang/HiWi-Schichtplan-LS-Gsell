@@ -44,14 +44,23 @@ export async function GET(_: Request, ctx: RouteContext<'/export/[periodId]/pdf'
 
   // Berechnung nicht über zwei Seiten verteilen
   const afterPlan = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
-  const needed = (data.calc.length + 1) * 7 + 10
+  const needed = (data.calc.rows.length + 1) * 7 + 24
   const newPage = afterPlan + needed > doc.internal.pageSize.getHeight() - 14
   if (newPage) doc.addPage()
+  let y = newPage ? 16 : afterPlan + 8
+  doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(0, 77, 33)
+  doc.text('Berechnung', M, y)
+  doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(60)
+  for (const line of data.facts) {
+    const wrapped = doc.splitTextToSize(line, W - 2 * M)
+    doc.text(wrapped, M, (y += 5))
+    y += (wrapped.length - 1) * 3.6
+  }
 
   autoTable(doc, {
-    startY: newPage ? 16 : afterPlan + 8,
+    startY: y + 3,
     head: [calcHeader(data.lecture).map((h, i) => ({ content: h, styles: { halign: i ? 'right' : 'left' } as const }))],
-    body: calcRowsText(data.calc, data.lecture),
+    body: calcRowsText(data.calc.rows, data.lecture),
     theme: 'striped',
     margin: { left: M, right: M },
     styles: { fontSize: 8.5, cellPadding: 1.5 },

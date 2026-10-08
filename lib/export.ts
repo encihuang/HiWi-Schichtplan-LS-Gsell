@@ -1,7 +1,7 @@
 import 'server-only'
 import {
   calcDaily, calcWeekly, getPeriod, getYear, listClosedDays, listDaily, listLog, listStaff, listWeekly,
-  ROLE_LABELS, type CalcRow,
+  ROLE_LABELS, type CalcResult,
 } from './data'
 import {
   addDays, eachDay, formatDate, formatDateTime, isLecture, PERIOD_LABELS, PERIOD_SHORT, semesterLabel, WEEKDAYS, weekday,
@@ -22,7 +22,9 @@ export type ExportData = {
   lecture: boolean
   /** Tabelle für den Plan: erste Zeile = Kopf */
   grid: string[][]
-  calc: CalcRow[]
+  calc: CalcResult
+  /** Werktage, Wochen, Feiertage als Text */
+  facts: string[]
 }
 
 export async function loadExport(periodId: number): Promise<ExportData | null> {
@@ -35,7 +37,7 @@ export async function loadExport(periodId: number): Promise<ExportData | null> {
   const lecture = isLecture(period.kind)
 
   let grid: string[][]
-  let calc: CalcRow[]
+  let calc: CalcResult
   if (lecture) {
     const slots = await listWeekly(period.id)
     grid = [
@@ -48,7 +50,7 @@ export async function loadExport(periodId: number): Promise<ExportData | null> {
         }),
       ]),
     ]
-    calc = calcWeekly(period, active, slots)
+    calc = calcWeekly(period, active, closed, slots)
   } else {
     const slots = await listDaily(period.id)
     const bySlot = new Map(slots.map((s) => [s.date, names[s.staff_id]]))
@@ -82,22 +84,36 @@ export async function loadExport(periodId: number): Promise<ExportData | null> {
     lecture,
     grid,
     calc,
+    facts: [
+      `Werktage im Zeitraum: ${calc.totalWorkdays} (Mo-Fr ohne Feiertage), ${calc.weeks.toLocaleString('de-DE')} Wochen`,
+      `Feiertage im Zeitraum: ${
+        calc.holidays.length
+          ? calc.holidays.map((h) => `${formatDate(h.date)} ${h.name}${weekday(h.date) > 5 ? ' (Wochenende)' : ''}`).join(', ')
+          : 'keine'
+      }`,
+    ],
   }
 }
 
 export const calcHeader = (lecture: boolean) => [
-  'Name', 'h/Woche', ...(lecture ? [] : ['Werktage']), 'Anteil', lecture ? 'Soll Tage/Woche' : 'Soll Tage', 'Eingeteilt', 'Differenz',
+  'Name', 'h/Woche', 'Beginn', 'Ende', 'Werktage', 'Tage gewichtet', 'Anteil', 'Soll Tage', 'Soll gerundet',
+  ...(lecture ? ['Soll/Woche', 'Ist/Woche'] : []), 'Eingeteilt', 'Differenz',
 ]
 
 const de = (v: number, digits = 1) => v.toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 
-export const calcRowsText = (rows: CalcRow[], lecture: boolean) =>
+export const calcRowsText = (rows: CalcResult['rows'], lecture: boolean) =>
   rows.map((r) => [
     r.staff.name,
     de(r.staff.hours_per_week, 0),
-    ...(lecture ? [] : [String(r.workdays)]),
+    formatDate(r.from),
+    formatDate(r.to),
+    String(r.workdays),
+    de(r.weighted),
     `${de(r.share * 100)} %`,
     de(r.target),
+    String(r.targetRounded),
+    ...(lecture ? [de(r.perWeekTarget ?? 0), String(r.perWeekAssigned ?? 0)] : []),
     String(r.assigned),
     `${r.delta > 0 ? '+' : ''}${de(r.delta)}`,
   ])

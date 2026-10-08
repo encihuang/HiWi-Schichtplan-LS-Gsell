@@ -1,7 +1,7 @@
 import 'server-only'
 import { query } from './db'
 import {
-  academicYearPeriods, eachDay, holidaysBetween, isWeekend, PERIOD_KINDS, todayIso,
+  academicYearPeriods, eachDay, holidaysBetween, isWeekend, PERIOD_KINDS, todayIso, weekday,
   type PeriodKind,
 } from './dates'
 
@@ -116,12 +116,34 @@ export async function currentYearAndPeriod() {
 
 export type CalcRow = {
   staff: Staff
+  /** tatsächlicher Beginn/Ende im Zeitraum (Beschäftigung ∩ Zeitraum) */
+  from: string
+  to: string
+  /** Werktage ohne Feiertage im eigenen Beschäftigungszeitraum */
   workdays: number
+  /** Werktage × h/Woche ÷ 5 */
   weighted: number
   share: number
+  /** Soll-Tage im Zeitraum (ungerundet und gerundet) */
   target: number
+  targetRounded: number
+  /** eingeteilte Tage im Zeitraum */
   assigned: number
   delta: number
+  /** nur Vorlesungszeit: Soll und Ist pro Woche */
+  perWeekTarget?: number
+  perWeekAssigned?: number
+}
+
+export type CalcResult = {
+  rows: CalcRow[]
+  /** Werktage im ganzen Zeitraum ohne Feiertage */
+  totalWorkdays: number
+  /** Feiertage/Schließtage, die auf einen Werktag fallen */
+  closedWorkdays: number
+  weeks: number
+  /** alle Feier-/Schließtage im Zeitraum (auch am Wochenende) */
+  holidays: ClosedDay[]
 }
 
 const overlap = (s: Staff, start: string, end: string): [string, string] | null => {
@@ -135,34 +157,54 @@ export function workdaysOf(period: Period, closed: ClosedDay[]) {
   return eachDay(period.start_date, period.end_date).filter((d) => !isWeekend(d) && !closedSet.has(d))
 }
 
-/** Vorlesungsfreie Zeit: wie im Excel-Blatt „Berechnung" (Werktage × h/5, Anteil an allen Arbeitstagen). */
-export function calcDaily(period: Period, staff: Staff[], closed: ClosedDay[], slots: DailySlot[]): CalcRow[] {
-  const days = workdaysOf(period, closed)
-  const rows = staff
-    .map((s) => {
-      const range = overlap(s, period.start_date, period.end_date)
-      const workdays = range ? days.filter((d) => d >= range[0] && d <= range[1]).length : 0
-      return { staff: s, workdays, weighted: (workdays * s.hours_per_week) / 5 }
-    })
-    .filter((r) => r.workdays > 0)
+function baseRows(period: Period, staff: Staff[], days: string[]) {
+  const rows = staff.flatMap((s) => {
+    const range = overlap(s, period.start_date, period.end_date)
+    if (!range) return []
+    const own = days.filter((d) => d >= range[0] && d <= range[1])
+    return own.length ? [{ staff: s, from: range[0], to: range[1], own, workdays: own.length, weighted: (own.length * s.hours_per_week) / 5 }] : []
+  })
   const total = rows.reduce((a, r) => a + r.weighted, 0)
   return rows.map((r) => {
     const share = total ? r.weighted / total : 0
     const target = share * days.length
+    return { ...r, share, target, targetRounded: Math.round(target) }
+  })
+}
+
+function summary(period: Period, closed: ClosedDay[], days: string[]) {
+  const all = eachDay(period.start_date, period.end_date)
+  return {
+    totalWorkdays: days.length,
+    closedWorkdays: all.filter((d) => !isWeekend(d)).length - days.length,
+    weeks: Math.round((all.length / 7) * 10) / 10,
+    holidays: closed.filter((c) => c.date >= period.start_date && c.date <= period.end_date),
+  }
+}
+
+/** Vorlesungsfreie Zeit: wie im Excel-Blatt „Berechnung" (Werktage × h/5, Anteil an allen Arbeitstagen). */
+export function calcDaily(period: Period, staff: Staff[], closed: ClosedDay[], slots: DailySlot[]): CalcResult {
+  const days = workdaysOf(period, closed)
+  const rows = baseRows(period, staff, days).map((r) => {
     const assigned = slots.filter((x) => x.staff_id === r.staff.id).length
-    return { ...r, share, target, assigned, delta: assigned - target }
+    return { ...r, assigned, delta: assigned - r.target }
   })
+  return { rows, ...summary(period, closed, days) }
 }
 
-/** Vorlesungszeit: Soll-Tage pro Woche = Anteil an den Wochenstunden × 5. */
-export function calcWeekly(period: Period, staff: Staff[], slots: WeeklySlot[]): CalcRow[] {
-  const rows = staff.filter((s) => overlap(s, period.start_date, period.end_date))
-  const total = rows.reduce((a, s) => a + s.hours_per_week, 0)
-  return rows.map((s) => {
-    const share = total ? s.hours_per_week / total : 0
-    const target = share * 5
-    const assigned = new Set(slots.filter((x) => x.staff_id === s.id).map((x) => x.weekday)).size
-    return { staff: s, workdays: 0, weighted: s.hours_per_week, share, target, assigned, delta: assigned - target }
+/** Vorlesungszeit: gleiche Rechnung; eingeteilt = Werktage im Zeitraum an den eigenen Wochentagen. */
+export function calcWeekly(period: Period, staff: Staff[], closed: ClosedDay[], slots: WeeklySlot[]): CalcResult {
+  const days = workdaysOf(period, closed)
+  const rows = baseRows(period, staff, days).map(({ own, ...r }) => {
+    const mine = new Set(slots.filter((x) => x.staff_id === r.staff.id).map((x) => x.weekday))
+    const assigned = own.filter((d) => mine.has(weekday(d))).length
+    return {
+      ...r,
+      assigned,
+      delta: assigned - r.target,
+      perWeekTarget: r.share * 5,
+      perWeekAssigned: mine.size,
+    }
   })
+  return { rows, ...summary(period, closed, days) }
 }
-
