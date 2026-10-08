@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+/* LMU-Farben: Grün #00883A als Hauptfarbe */
+@theme {
+  --color-lmu: #00883a;
+  --color-lmu-dark: #006a2d;
+  --color-lmu-darker: #004d21;
+  --color-lmu-light: #e5f3eb;
+  --color-lmu-lighter: #f3f9f5;
+  --font-sans: var(--font-roboto), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: #f6f7f6;
+  color: #1d1d1b;
+}
+
+@media print {
+  .no-print { display: none !important; }
+}
