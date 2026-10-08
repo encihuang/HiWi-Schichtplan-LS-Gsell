@@ -20,15 +20,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="de" className={roboto.variable}>
       <body className="min-h-screen font-sans antialiased">
         <header className="bg-white border-b-4 border-lmu no-print">
-          <div className="mx-auto max-w-6xl px-4 py-4 flex flex-wrap items-center gap-x-6 gap-y-3">
-            <Link href="/" className="flex items-center gap-4 min-w-0 flex-1">
+          <div className="mx-auto max-w-6xl px-4 py-3 sm:py-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+            <Link href="/" className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1 basis-full md:basis-0">
               <Logo />
               <div className="min-w-0">
-                <div className="text-lg sm:text-xl font-bold text-lmu-dark leading-tight">{APP_TITLE}</div>
-                <div className="text-xs sm:text-sm text-neutral-600 leading-snug">{CHAIR}</div>
+                <div className="text-base sm:text-xl font-bold text-lmu-dark leading-tight">{APP_TITLE}</div>
+                <div className="text-[11px] sm:text-sm text-neutral-600 leading-snug">{CHAIR}</div>
               </div>
             </Link>
-            <nav className="flex items-center gap-1 text-sm">
+            <nav className="flex w-full flex-wrap items-center gap-x-1 gap-y-1 text-sm md:w-auto">
               <Link href="/plan" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
                 Plan
               </Link>
@@ -39,9 +39,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 Einstellungen
               </Link>
               {me && (
-                <form action={switchStaff} className="flex items-center gap-2 ml-2 pl-3 border-l border-neutral-200">
+                <form
+                  action={switchStaff}
+                  className="ml-auto flex items-center gap-2 pl-3 md:ml-2 md:border-l md:border-neutral-200"
+                >
                   <span className="text-neutral-600">
-                    Angemeldet als <strong className="text-lmu-darker">{me.name}</strong>
+                    <span className="hidden sm:inline">Angemeldet als </span>
+                    <strong className="text-lmu-darker">{me.name}</strong>
                   </span>
                   <button className="text-lmu underline underline-offset-2 hover:text-lmu-darker">wechseln</button>
                 </form>

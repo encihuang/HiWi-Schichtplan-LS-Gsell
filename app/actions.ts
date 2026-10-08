@@ -251,6 +251,55 @@ export async function dateException(fd: FormData) {
   revalidatePath('/plan', 'layout')
 }
 
+// --- Sonderaufgaben (ohne Datum) ---------------------------------------------
+
+export async function addSpecialTask(fd: FormData) {
+  const me = await requireStaff()
+  const period = await getPeriod(num(fd, 'period'))
+  const name = str(fd, 'name')
+  if (!period || !name) return
+  const take = fd.get('take') === 'on'
+  await query(
+    'insert into special_tasks (period_id, name, note, staff_id, updated_by, updated_at) values ($1, $2, $3, $4, $5, now())',
+    [period.id, name, str(fd, 'note'), take ? me.id : null, me.name],
+  )
+  await addLog(period.id, me.name, `Sonderaufgabe „${name}“ angelegt${take ? ' und übernommen' : ''}`)
+  revalidatePath('/', 'layout')
+}
+
+export async function deleteSpecialTask(fd: FormData) {
+  const me = await requireStaff()
+  const [t] = await query<{ period_id: number; name: string }>(
+    'delete from special_tasks where id = $1 returning period_id, name',
+    [num(fd, 'task')],
+  )
+  if (t) await addLog(t.period_id, me.name, `Sonderaufgabe „${t.name}“ gelöscht`)
+  revalidatePath('/', 'layout')
+}
+
+/** Sonderaufgabe übernehmen bzw. abgeben */
+export async function toggleSpecialTask(fd: FormData) {
+  const me = await requireStaff()
+  const [t] = await query<{ id: number; period_id: number; name: string; staff_id: number | null }>(
+    'select id, period_id, name, staff_id from special_tasks where id = $1',
+    [num(fd, 'task')],
+  )
+  if (!t) return
+  if (t.staff_id) {
+    if (t.staff_id !== me.id && !(await canEditOthers())) return
+    await query('update special_tasks set staff_id = null, updated_by = $2, updated_at = now() where id = $1', [t.id, me.name])
+    const who = t.staff_id === me.id ? '' : ` (${(await getStaff(t.staff_id))?.name})`
+    await addLog(t.period_id, me.name, `Sonderaufgabe „${t.name}“ abgegeben${who}`)
+  } else {
+    const done = await query(
+      'update special_tasks set staff_id = $2, updated_by = $3, updated_at = now() where id = $1 and staff_id is null returning 1',
+      [t.id, me.id, me.name],
+    )
+    if (done.length) await addLog(t.period_id, me.name, `Sonderaufgabe „${t.name}“ übernommen`)
+  }
+  revalidatePath('/', 'layout')
+}
+
 export async function toggleDaily(fd: FormData) {
   const me = await requireStaff()
   const period = await getPeriod(num(fd, 'period'))

@@ -8,8 +8,22 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-const input = 'rounded border border-neutral-300 px-2 py-1.5 text-sm focus:outline-2 focus:outline-lmu'
+const input = 'w-full min-w-0 rounded border border-neutral-300 px-2 py-1.5 text-sm focus:outline-2 focus:outline-lmu'
 const btn = 'rounded bg-lmu px-3 py-1.5 text-sm font-medium text-white hover:bg-lmu-dark'
+const cols = 'lg:grid-cols-[1.2fr_1.8fr_0.6fr_1fr_1fr_0.4fr_auto]'
+
+/** Eingabefeld mit Beschriftung, die nur auf schmalen Bildschirmen sichtbar ist (sonst Tabellenkopf) */
+function Field({ label, wide, className = '', children }: {
+  label: string; wide?: boolean; className?: string; children: React.ReactNode
+}) {
+  return (
+    <label className={`grid min-w-0 gap-0.5 ${wide ? 'col-span-2 lg:col-span-1' : ''} ${className}`}>
+      <span className="text-xs text-neutral-500 lg:hidden">{label}</span>
+      {children}
+    </label>
+  )
+}
+
 const btnGhost = 'rounded px-3 py-1.5 text-sm text-red-700 hover:bg-red-50'
 
 export default async function Settings() {
@@ -21,7 +35,7 @@ export default async function Settings() {
 
   return (
     <div className="space-y-10">
-      <h1 className="text-2xl font-bold text-lmu-darker">Einstellungen</h1>
+      <h1 className="text-xl sm:text-2xl font-bold text-lmu-darker">Einstellungen</h1>
 
       {/* Hilfskräfte */}
       <section>
@@ -30,37 +44,59 @@ export default async function Settings() {
           Nur aktive Hilfskräfte erscheinen in der Auswahl „Wer bist du?“. Die Wochenstunden bestimmen den Soll-Anteil;
           Beginn und Ende (optional) begrenzen die Werktage in der vorlesungsfreien Zeit.
         </p>
-        <div className="mt-3 overflow-x-auto rounded-lg bg-white shadow-sm">
-          <div className="min-w-[920px] divide-y divide-neutral-100">
-            <div className="grid grid-cols-[1.2fr_1.8fr_0.6fr_1fr_1fr_0.4fr_auto] gap-2 bg-lmu px-3 py-2 text-sm font-semibold text-white">
-              <span>Name</span><span>E-Mail</span><span>h/Woche</span><span>Beginn</span><span>Ende</span><span>Aktiv</span><span className="w-40" />
+        <div className="mt-3 rounded-lg bg-white shadow-sm">
+          <div className="divide-y divide-neutral-100">
+            <div className={`hidden ${cols} gap-2 rounded-t-lg bg-lmu px-3 py-2 text-sm font-semibold text-white lg:grid`}>
+              <span>Name</span><span>E-Mail</span><span>h/Woche</span><span>Beginn</span><span>Ende</span><span>Aktiv</span><span className="w-28" />
             </div>
             {staff.map((s) => (
-              <div key={s.id} className="flex items-center gap-2 px-3 py-2">
-                <form action={saveStaff} className="grid flex-1 grid-cols-[1.2fr_1.8fr_0.6fr_1fr_1fr_0.4fr_auto] items-center gap-2">
+              <div key={s.id} className="flex flex-col gap-2 px-3 py-3 lg:flex-row lg:items-center lg:py-2">
+                <form action={saveStaff} className={`grid flex-1 grid-cols-2 gap-2 ${cols} lg:items-center`}>
                   <input type="hidden" name="id" value={s.id} />
-                  <input name="name" defaultValue={s.name} required className={input} />
-                  <input type="email" name="email" defaultValue={s.email} placeholder="name@campus.lmu.de" className={input} />
-                  <input name="hours" defaultValue={s.hours_per_week} inputMode="decimal" className={input} />
-                  <input type="date" name="start" defaultValue={s.start_date ?? ''} className={input} />
-                  <input type="date" name="end" defaultValue={s.end_date ?? ''} className={input} />
-                  <input type="checkbox" name="active" defaultChecked={s.active} className="h-5 w-5 accent-lmu" />
-                  <button className={btn}>Speichern</button>
+                  <Field label="Name" wide>
+                    <input name="name" defaultValue={s.name} required className={input} />
+                  </Field>
+                  <Field label="E-Mail" wide>
+                    <input type="email" name="email" defaultValue={s.email} placeholder="name@campus.lmu.de" className={input} />
+                  </Field>
+                  <Field label="h/Woche">
+                    <input name="hours" defaultValue={s.hours_per_week} inputMode="decimal" className={input} />
+                  </Field>
+                  <Field label="Aktiv" className="lg:order-6">
+                    <input type="checkbox" name="active" defaultChecked={s.active} className="h-5 w-5 accent-lmu" />
+                  </Field>
+                  <Field label="Beginn">
+                    <input type="date" name="start" defaultValue={s.start_date ?? ''} className={input} />
+                  </Field>
+                  <Field label="Ende">
+                    <input type="date" name="end" defaultValue={s.end_date ?? ''} className={input} />
+                  </Field>
+                  <button className={`${btn} col-span-2 lg:order-7 lg:col-span-1`}>Speichern</button>
                 </form>
-                <form action={deleteStaff}>
+                <form action={deleteStaff} className="text-right">
                   <input type="hidden" name="id" value={s.id} />
                   <button className={btnGhost} title="Löscht auch alle Schichten dieser Person">Löschen</button>
                 </form>
               </div>
             ))}
-            <form action={saveStaff} className="grid grid-cols-[1.2fr_1.8fr_0.6fr_1fr_1fr_0.4fr_auto] items-center gap-2 bg-lmu-lighter px-3 py-2">
-              <input name="name" placeholder="Neue Hilfskraft" required className={input} />
-              <input type="email" name="email" placeholder="E-Mail" className={input} />
-              <input name="hours" placeholder="h" inputMode="decimal" className={input} />
-              <input type="date" name="start" className={input} />
-              <input type="date" name="end" className={input} />
-              <span />
-              <button className={`${btn} w-40`}>Hinzufügen</button>
+            <form action={saveStaff} className={`grid grid-cols-2 gap-2 rounded-b-lg bg-lmu-lighter px-3 py-3 ${cols} lg:items-center lg:py-2`}>
+              <Field label="Name" wide>
+                <input name="name" placeholder="Neue Hilfskraft" required className={input} />
+              </Field>
+              <Field label="E-Mail" wide>
+                <input type="email" name="email" placeholder="E-Mail" className={input} />
+              </Field>
+              <Field label="h/Woche">
+                <input name="hours" placeholder="h" inputMode="decimal" className={input} />
+              </Field>
+              <span className="lg:order-6" />
+              <Field label="Beginn">
+                <input type="date" name="start" className={input} />
+              </Field>
+              <Field label="Ende">
+                <input type="date" name="end" className={input} />
+              </Field>
+              <button className={`${btn} col-span-2 lg:order-7 lg:col-span-1 lg:mr-[7.5rem]`}>Hinzufügen</button>
             </form>
           </div>
         </div>
@@ -94,8 +130,8 @@ export default async function Settings() {
                 <form action={saveYearDates} className="space-y-2">
                   <input type="hidden" name="year" value={y.id} />
                   {periods.map((p) => (
-                    <div key={p.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 text-sm">
-                      <span>{PERIOD_LABELS[p.kind]}</span>
+                    <div key={p.id} className="grid grid-cols-2 items-center gap-2 text-sm sm:grid-cols-[1fr_auto_auto]">
+                      <span className="col-span-2 font-medium sm:col-span-1 sm:font-normal">{PERIOD_LABELS[p.kind]}</span>
                       <input type="date" name={`${p.kind}_start`} defaultValue={p.start_date} className={input} />
                       <input type="date" name={`${p.kind}_end`} defaultValue={p.end_date} className={input} />
                     </div>

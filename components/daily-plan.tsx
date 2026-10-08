@@ -35,9 +35,9 @@ export function DailyPlan({
             <h3 className="px-1 pb-2 font-semibold text-lmu-darker">
               {MONTHS[mo - 1]} {y}
             </h3>
-            <div className="grid grid-cols-5 gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-5">
               {WEEKDAYS_SHORT.slice(0, 5).map((d) => (
-                <div key={d} className="rounded bg-lmu py-1 text-center text-xs font-semibold uppercase text-white">
+                <div key={d} className="hidden rounded bg-lmu py-1 text-center text-xs font-semibold uppercase text-white sm:block">
                   {d}
                 </div>
               ))}
@@ -45,12 +45,17 @@ export function DailyPlan({
                 [0, 1, 2, 3, 4].map((i) => {
                   const d = addDays(mon, i)
                   const inside = d.startsWith(m) && d >= period.start_date && d <= period.end_date
-                  if (!inside) return <div key={d} />
+                  if (!inside) return <div key={d} className="hidden sm:block" />
                   const holiday = byClosed.get(d)
-                  const label = <span className="text-xs tabular-nums opacity-70">{formatDate(d).slice(0, 6)}</span>
+                  const label = (
+                    <span className="text-xs tabular-nums opacity-70">
+                      <span className="sm:hidden">{WEEKDAYS_SHORT[i]}, </span>
+                      {formatDate(d).slice(0, 6)}
+                    </span>
+                  )
                   if (holiday) {
                     return (
-                      <div key={d} className="flex h-16 flex-col items-center justify-center rounded border-2 border-transparent bg-neutral-50 px-1 text-center text-neutral-400">
+                      <div key={d} className="flex h-12 items-center justify-between rounded border-2 border-transparent bg-neutral-50 px-3 text-neutral-400 sm:h-16 sm:flex-col sm:justify-center sm:px-1 sm:text-center">
                         {label}
                         <span className="text-[11px] leading-tight">{holiday}</span>
                       </div>
@@ -68,7 +73,10 @@ export function DailyPlan({
                     <form key={d} action={toggleDaily}>
                       <input type="hidden" name="period" value={period.id} />
                       <input type="hidden" name="date" value={d} />
-                      <SlotButton state={state} className="flex h-16 flex-col items-center justify-center leading-tight">
+                      <SlotButton
+                        state={state}
+                        className="flex h-12 items-center justify-between px-3 leading-tight sm:h-16 sm:flex-col sm:justify-center sm:px-2"
+                      >
                         {label}
                         <span
                           className="font-semibold truncate max-w-full"

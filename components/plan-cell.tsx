@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from 'react'
 import { setAvailability, setDuty } from '@/app/actions'
 import type { AvailabilityStatus, DutyKind } from '@/lib/data'
 import { AVAILABILITY_STYLES } from '@/lib/plan-styles'
+import { WEEKDAYS } from '@/lib/dates'
 
 const STATUS_OPTIONS: { value: AvailabilityStatus | ''; label: string }[] = [
   { value: 'ok', label: 'Dienst möglich' },
@@ -89,7 +90,22 @@ export function PlanCell({
       )}
 
       {open && (
-        <div role="dialog" className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-neutral-200 bg-white p-3 shadow-lg">
+        <div className="fixed inset-0 z-30 bg-black/30 sm:hidden" onClick={() => setOpen(false)} aria-hidden="true" />
+      )}
+      {open && (
+        <div
+          role="dialog"
+          aria-label={`${WEEKDAYS[weekday - 1]} bearbeiten`}
+          className={`fixed inset-x-0 bottom-0 z-40 rounded-t-2xl bg-white p-4 pb-6 shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:top-full sm:z-20 sm:mt-1 sm:w-56 sm:rounded-lg sm:border sm:border-neutral-200 sm:p-3 sm:pb-3 sm:shadow-lg ${
+            weekday >= 4 ? 'sm:right-0' : 'sm:left-0'
+          }`}
+        >
+          <div className="mb-3 flex items-center justify-between sm:hidden">
+            <span className="text-base font-semibold text-lmu-darker">{WEEKDAYS[weekday - 1]}</span>
+            <button type="button" onClick={() => setOpen(false)} className="rounded px-2 py-1 text-sm text-neutral-600">
+              Schließen
+            </button>
+          </div>
           <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Verfügbarkeit</div>
           <div className="mt-1 grid gap-1">
             {STATUS_OPTIONS.map((o) => (
@@ -97,7 +113,7 @@ export function PlanCell({
                 key={o.value}
                 type="button"
                 onClick={() => send(setAvailability, 'status', o.value)}
-                className={`flex items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-neutral-100 ${
+                className={`flex items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-neutral-100 sm:py-1 ${
                   (status ?? '') === o.value ? 'font-semibold' : ''
                 }`}
               >
@@ -116,7 +132,7 @@ export function PlanCell({
                   send(setDuty, 'kind', o.value)
                   setOpen(false)
                 }}
-                className={`rounded border px-2 py-1 text-sm ${
+                className={`rounded border px-2 py-2 text-sm sm:py-1 ${
                   (kind ?? '') === o.value
                     ? 'border-lmu bg-lmu text-white'
                     : 'border-neutral-200 hover:border-lmu hover:bg-lmu-lighter'

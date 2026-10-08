@@ -78,6 +78,15 @@ create table if not exists date_extras (
   updated_at timestamptz not null default now(),
   primary key (period_id, date, staff_id)
 );
+create table if not exists special_tasks (
+  id serial primary key,
+  period_id int not null references periods(id) on delete cascade,
+  name text not null,
+  note text not null default '',
+  staff_id int references staff(id) on delete set null,
+  updated_by text,
+  updated_at timestamptz
+);
 create table if not exists daily_slots (
   period_id int not null references periods(id) on delete cascade,
   date text not null,

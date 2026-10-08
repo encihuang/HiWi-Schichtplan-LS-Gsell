@@ -1,7 +1,7 @@
 import { MailLink } from '@/components/mail-link'
 import { query } from '@/lib/db'
 import {
-  lectureRoster, listClosedDays, listDaily, listDuties, listExceptions, listExtras, listStaff,
+  lectureRoster, listClosedDays, listDaily, listDuties, listExceptions, listExtras, listSpecialTasks, listStaff,
   type Period, type RosterEntry,
 } from '@/lib/data'
 import { addDays, formatDate, isLecture, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
@@ -79,6 +79,9 @@ export default async function Overview() {
   for (const s of await listStaff()) if (!byId.has(s.id)) byId.set(s.id, s)
   const todayInfo = days.find((d) => d.date === today)
   const allEmails = staff.map((s) => s.email).filter(Boolean)
+  // Sonderaufgaben des laufenden Zeitraums
+  const currentPeriod = todayInfo?.period ?? days.find((d) => d.period)?.period
+  const tasks = currentPeriod ? await listSpecialTasks(currentPeriod.id) : []
 
   return (
     <div className="space-y-8">
@@ -110,21 +113,22 @@ export default async function Overview() {
 
       <section>
         <h2 className="text-lg font-semibold text-lmu-darker">Die nächsten {WEEKS} Wochen</h2>
-        <div className="mt-2 overflow-x-auto">
-          <div className="grid min-w-[760px] grid-cols-5 gap-1.5">
+        <div className="mt-2">
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-5">
             {WEEKDAYS.map((d) => (
-              <div key={d} className="rounded bg-lmu py-1.5 text-center text-xs font-semibold uppercase text-white">{d}</div>
+              <div key={d} className="hidden rounded bg-lmu py-1.5 text-center text-xs font-semibold uppercase text-white sm:block">{d}</div>
             ))}
             {days.map((d) => {
               const [, m, day] = d.date.split('-').map(Number)
               return (
                 <div
                   key={d.date}
-                  className={`min-h-24 rounded border bg-white p-2 ${d.date === today ? 'border-2 border-lmu' : 'border-neutral-200'} ${
-                    d.date < today ? 'opacity-50' : ''
+                  className={`rounded border bg-white p-2 sm:min-h-24 ${d.date === today ? 'border-2 border-lmu' : 'border-neutral-200'} ${
+                    d.date < today ? 'hidden opacity-50 sm:block' : ''
                   }`}
                 >
                   <div className="mb-1 text-xs text-neutral-500 tabular-nums">
+                    <span className="font-semibold sm:hidden">{WEEKDAYS[weekday(d.date) - 1]}, </span>
                     {day}. {MONTHS[m - 1].slice(0, 3)}
                   </div>
                   {d.closed ? (
@@ -140,6 +144,33 @@ export default async function Overview() {
           </div>
         </div>
       </section>
+
+      {tasks.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-lmu-darker">Sonderaufgaben</h2>
+          <ul className="mt-2 divide-y divide-neutral-100 rounded-lg bg-white shadow-sm">
+            {tasks.map((t) => {
+              const s = t.staff_id ? byId.get(t.staff_id) : undefined
+              return (
+                <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                  <span className="min-w-0">
+                    <span className="font-semibold">{t.name}</span>
+                    {t.note && <span className="block text-xs text-neutral-500">{t.note}</span>}
+                  </span>
+                  {s ? (
+                    <span className="flex items-center gap-1">
+                      <span className="text-sm">{s.name}</span>
+                      <MailLink email={s.email} name={s.name} />
+                    </span>
+                  ) : (
+                    <span className="text-sm font-semibold text-amber-700">noch niemand</span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
 
       <section>
         <div className="flex flex-wrap items-baseline justify-between gap-2">

@@ -16,7 +16,7 @@ function Action({ period, date, op, staff, label, tone }: {
       <input type="hidden" name="date" value={date} />
       <input type="hidden" name="op" value={op} />
       {staff && <input type="hidden" name="staff" value={staff} />}
-      <button className={`rounded border bg-white px-1.5 py-0.5 text-[11px] leading-tight ${tones[tone]}`}>{label}</button>
+      <button className={`rounded border bg-white px-2 py-1 text-xs leading-tight sm:px-1.5 sm:py-0.5 sm:text-[11px] ${tones[tone]}`}>{label}</button>
     </form>
   )
 }
@@ -62,20 +62,25 @@ export function DateExceptions({
           return (
             <div key={m}>
               <h3 className="pb-1.5 font-semibold text-lmu-darker">{MONTHS[mo - 1]} {y}</h3>
-              <div className="overflow-x-auto">
-                <div className="grid min-w-[720px] grid-cols-5 gap-1.5">
+              <div>
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-5">
                   {WEEKDAYS_SHORT.slice(0, 5).map((d) => (
-                    <div key={d} className="rounded bg-lmu py-1 text-center text-xs font-semibold uppercase text-white">{d}</div>
+                    <div key={d} className="hidden rounded bg-lmu py-1 text-center text-xs font-semibold uppercase text-white sm:block">{d}</div>
                   ))}
                   {mondays.flatMap((mon) =>
                     [0, 1, 2, 3, 4].map((i) => {
                       const d = addDays(mon, i)
-                      if (!d.startsWith(m) || d < period.start_date || d > period.end_date) return <div key={d} />
-                      const head = <div className="text-xs tabular-nums text-neutral-500">{formatDate(d).slice(0, 6)}</div>
+                      if (!d.startsWith(m) || d < period.start_date || d > period.end_date) return <div key={d} className="hidden sm:block" />
+                      const head = (
+                        <div className="text-xs tabular-nums text-neutral-500">
+                          <span className="font-semibold sm:hidden">{WEEKDAYS_SHORT[i]}, </span>
+                          {formatDate(d).slice(0, 6)}
+                        </div>
+                      )
                       const holiday = byClosed.get(d)
                       if (holiday) {
                         return (
-                          <div key={d} className="rounded border border-neutral-100 bg-neutral-50 p-1.5 text-neutral-400">
+                          <div key={d} className={`rounded border border-neutral-100 bg-neutral-50 p-1.5 text-neutral-400 ${d < today ? 'hidden sm:block' : ''}`}>
                             {head}
                             <div className="text-xs">{holiday}</div>
                           </div>
@@ -97,7 +102,7 @@ export function DateExceptions({
                       return (
                         <div
                           key={d}
-                          className={`rounded border p-1.5 ${hasOpen ? 'border-amber-400 bg-amber-50' : 'border-neutral-200'} ${past ? 'opacity-60' : ''}`}
+                          className={`rounded border p-1.5 ${hasOpen ? 'border-amber-400 bg-amber-50' : 'border-neutral-200'} ${past ? 'hidden opacity-60 sm:block' : ''}`}
                         >
                           {head}
                           {present === 0 && <div className="text-xs font-semibold text-red-700">unbesetzt</div>}

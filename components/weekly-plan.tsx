@@ -24,6 +24,7 @@ export function WeeklyPlan({
 }) {
   // eigene Zeile zuerst
   const rows = [...staff].sort((a, b) => Number(b.id === meId) - Number(a.id === meId))
+  const me = staff.find((s) => s.id === meId)
   const missing = staff.filter((s) => availability.filter((a) => a.staff_id === s.id).length < 5)
 
   return (
@@ -31,8 +32,15 @@ export function WeeklyPlan({
       <div className="rounded-lg bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <p className="max-w-xl text-sm text-neutral-600">
-            Wöchentliche Planung für die Vorlesungszeit. Klicke in <strong>deiner Zeile</strong> auf einen Tag, um deine
-            Verfügbarkeit (Farbe) und deinen Dienst einzutragen.
+            Wöchentliche Planung für die Vorlesungszeit.{' '}
+            <span className="sm:hidden">
+              Tippe unter <strong>Meine Woche</strong> auf einen Tag, um deine Verfügbarkeit (Farbe) und deinen Dienst
+              einzutragen.
+            </span>
+            <span className="hidden sm:inline">
+              Klicke in <strong>deiner Zeile</strong> auf einen Tag, um deine Verfügbarkeit (Farbe) und deinen Dienst
+              einzutragen.
+            </span>
           </p>
           <ul className="grid gap-1 text-xs">
             {(['ok', 'ungern', 'nein'] as const).map((s) => (
@@ -46,11 +54,40 @@ export function WeeklyPlan({
           </ul>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
+        {me && (
+          <div className="mt-4 sm:hidden">
+            <h3 className="text-sm font-semibold text-lmu-darker">Meine Woche</h3>
+            <ul className="mt-2 divide-y divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200">
+              {DAYS.map((day) => {
+                const duty = duties.find((d) => d.staff_id === me.id && d.weekday === day)
+                const status = availability.find((a) => a.staff_id === me.id && a.weekday === day)?.status ?? null
+                return (
+                  <li key={day} className="grid grid-cols-[6.5rem_1fr] items-stretch">
+                    <span className="flex items-center bg-lmu-lighter px-3 text-sm font-semibold">{WEEKDAYS[day - 1]}</span>
+                    <PlanCell
+                      periodId={period.id}
+                      staffId={me.id}
+                      weekday={day}
+                      status={status}
+                      kind={duty?.kind ?? null}
+                      kindLabel={duty ? DUTY_LABELS[duty.kind] : ''}
+                      editable
+                      warn={duty && status === 'nein' ? 'Eingeteilt, obwohl „kein Dienst möglich“' : undefined}
+                    />
+                  </li>
+                )
+              })}
+            </ul>
+            <h3 className="mt-4 text-sm font-semibold text-lmu-darker">Ganzes Team</h3>
+            <p className="text-xs text-neutral-500">Tabelle seitlich wischen.</p>
+          </div>
+        )}
+
+        <div className="mt-2 overflow-x-auto sm:mt-4">
           <table className="w-full min-w-[720px] table-fixed border-collapse text-sm">
             <thead>
               <tr>
-                <th className="w-32" />
+                <th className="sticky left-0 z-10 w-28 bg-white sm:w-32" />
                 {WEEKDAYS.map((d) => (
                   <th key={d} className="border border-lmu bg-lmu px-2 py-2 text-left font-semibold uppercase tracking-wide text-white">
                     {d}
@@ -63,7 +100,7 @@ export function WeeklyPlan({
                 const editable = s.id === meId || canEditOthers
                 return (
                   <tr key={s.id} className={s.id === meId ? 'outline-2 outline-lmu-darker -outline-offset-2' : ''}>
-                    <th className="border border-neutral-200 bg-white px-2 text-left font-semibold">
+                    <th className="sticky left-0 z-10 border border-neutral-200 bg-white px-2 text-left font-semibold">
                       {s.name}
                       {s.id === meId && <span className="ml-1 text-xs font-normal text-lmu">(du)</span>}
                     </th>
@@ -89,7 +126,7 @@ export function WeeklyPlan({
                 )
               })}
               <tr>
-                <th className="border border-neutral-200 bg-lmu-lighter px-2 py-2 text-left align-top font-semibold text-lmu-darker">
+                <th className="sticky left-0 z-10 border border-neutral-200 bg-lmu-lighter px-2 py-2 text-left align-top font-semibold text-lmu-darker">
                   Besetzung
                 </th>
                 {DAYS.map((day) => {

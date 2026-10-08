@@ -20,7 +20,7 @@ export function CalcTable({ calc, period, lecture, meId }: { calc: CalcResult; p
 
   return (
     <div className="mt-2 space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Zeitraum" value={`${formatDate(period.start_date).slice(0, 6)}–${formatDate(period.end_date)}`} sub={`${n(calc.weeks)} Wochen`} />
         <Stat label="Werktage" value={calc.totalWorkdays} sub="Mo–Fr ohne Feier- und Schließtage" />
         <Stat label="Freie Werktage" value={calc.closedWorkdays} sub="Feiertage, Weihnachtspause u. a." />
@@ -63,7 +63,7 @@ export function CalcTable({ calc, period, lecture, meId }: { calc: CalcResult; p
           <table className="w-full text-sm tabular-nums whitespace-nowrap">
             <thead className="bg-lmu text-white">
               <tr className="text-right [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
-                <th className="text-left">Name</th>
+                <th className="sticky left-0 bg-lmu text-left">Name</th>
                 <th>h/Woche</th>
                 <th>Beginn</th>
                 <th>Ende</th>
@@ -84,7 +84,7 @@ export function CalcTable({ calc, period, lecture, meId }: { calc: CalcResult; p
                   key={r.staff.id}
                   className={`text-right border-t border-neutral-100 [&>td]:px-2 [&>td]:py-1.5 ${r.staff.id === meId ? 'bg-lmu-lighter font-semibold' : ''}`}
                 >
-                  <td className="text-left">{r.staff.name}</td>
+                  <td className={`sticky left-0 text-left ${r.staff.id === meId ? 'bg-lmu-lighter' : 'bg-white'}`}>{r.staff.name}</td>
                   <td>{n(r.staff.hours_per_week, 0)}</td>
                   <td className={partial(r) && r.from !== period.start_date ? 'text-amber-700' : ''}>{formatDate(r.from)}</td>
                   <td className={partial(r) && r.to !== period.end_date ? 'text-amber-700' : ''}>{formatDate(r.to)}</td>
@@ -103,7 +103,7 @@ export function CalcTable({ calc, period, lecture, meId }: { calc: CalcResult; p
                 </tr>
               ))}
               <tr className="text-right border-t-2 border-neutral-300 font-semibold [&>td]:px-2 [&>td]:py-1.5">
-                <td className="text-left">Summe</td>
+                <td className="sticky left-0 bg-white text-left">Summe</td>
                 <td>{n(sum((r) => r.staff.hours_per_week), 0)}</td>
                 <td />
                 <td />

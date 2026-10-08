@@ -23,6 +23,8 @@ export type Duty = { staff_id: number; weekday: number; kind: DutyKind; updated_
 export type DateException = { date: string; staff_id: number; substitute_id: number | null; updated_by: string; updated_at: string }
 /** zusätzlicher Dienst an einem einzelnen Datum */
 export type DateExtra = { date: string; staff_id: number; updated_by: string; updated_at: string }
+/** Sonderaufgabe ohne festes Datum (z. B. Vorlesungspodcast) */
+export type SpecialTask = { id: number; name: string; note: string; staff_id: number | null; updated_by: string | null; updated_at: string | null }
 export type AvailabilityStatus = 'ok' | 'ungern' | 'nein'
 export type Availability = { staff_id: number; weekday: number; status: AvailabilityStatus }
 export type Lecture = {
@@ -101,6 +103,12 @@ export const listExceptions = (periodId: number) =>
 export const listExtras = (periodId: number) =>
   query<DateExtra>(
     'select date, staff_id, updated_by, updated_at from date_extras where period_id = $1 order by date',
+    [periodId],
+  )
+
+export const listSpecialTasks = (periodId: number) =>
+  query<SpecialTask>(
+    'select id, name, note, staff_id, updated_by, updated_at from special_tasks where period_id = $1 order by id',
     [periodId],
   )
 

@@ -16,13 +16,13 @@ export function Logo() {
   }, [i])
   if (i >= SOURCES.length) {
     return (
-      <span className="shrink-0 grid place-items-center h-12 w-16 bg-lmu text-white font-bold tracking-wide rounded-sm">
+      <span className="shrink-0 grid place-items-center h-10 w-14 sm:h-12 sm:w-16 bg-lmu text-white font-bold tracking-wide rounded-sm">
         LMU
       </span>
     )
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={SOURCES[i]} alt="LMU München" className="h-12 w-auto shrink-0" onError={() => setI(i + 1)} />
+    <img src={SOURCES[i]} alt="LMU München" className="h-10 sm:h-12 w-auto shrink-0" onError={() => setI(i + 1)} />
   )
 }
