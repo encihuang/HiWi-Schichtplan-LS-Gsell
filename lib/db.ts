@@ -97,6 +97,20 @@ create index if not exists changelog_period on changelog (period_id, at desc);
 `
 
 // Einmalige Umstellungen bestehender Datenbanken.
+// Jede Umstellung läuft genau einmal (Name in schema_migrations), damit z. B. später
+// entfernte Schließtage nicht wieder auftauchen.
+const ONCE: [string, string][] = [
+  [
+    'weihnachtspause',
+    `insert into closed_days (year_id, date, name)
+     select y.id, to_char(d, 'YYYY-MM-DD'), 'Weihnachtspause'
+     from years y,
+       generate_series(make_date(y.start_year, 12, 24), make_date(y.start_year + 1, 1, 6), interval '1 day') d
+     where extract(isodow from d) < 6
+     on conflict (year_id, date) do nothing`,
+  ],
+]
+
 const MIGRATIONS = [
   `alter table staff add column if not exists email text not null default ''`,
   // Ansprechpartner/Support (weekly_slots) -> Dienstarten: allein = Alle Aufgaben, zu zweit = Geteilt
@@ -132,6 +146,13 @@ async function connect(): Promise<Query> {
   // Einzeln ausführen: über HTTP (Neon) geht nur ein Statement pro Aufruf.
   for (const stmt of SCHEMA.split(';').map((s) => s.trim()).filter(Boolean)) await q(stmt)
   for (const stmt of MIGRATIONS) await q(stmt)
+  await q('create table if not exists schema_migrations (name text primary key, at timestamptz not null default now())')
+  for (const [name, stmt] of ONCE) {
+    const [done] = await q('select 1 from schema_migrations where name = $1', [name])
+    if (done) continue
+    await q(stmt)
+    await q('insert into schema_migrations (name) values ($1) on conflict do nothing', [name])
+  }
   return q
 }
 

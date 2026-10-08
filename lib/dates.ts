@@ -163,3 +163,32 @@ export function holidaysBetween(start: string, end: string) {
     .filter((h) => h.date >= start && h.date <= end)
     .sort((a, b) => a.date.localeCompare(b.date))
 }
+
+/** Weihnachtspause der LMU (24.12.–06.01.): Werktage im Zeitraum, die kein Feiertag sind. */
+export function christmasBreakBetween(start: string, end: string) {
+  const holidays = new Set(holidaysBetween(start, end).map((h) => h.date))
+  const out: { date: string; name: string }[] = []
+  for (let y = Number(start.slice(0, 4)) - 1; y <= Number(end.slice(0, 4)); y++) {
+    for (const d of eachDay(`${y}-12-24`, `${y + 1}-01-06`)) {
+      if (d >= start && d <= end && !isWeekend(d) && !holidays.has(d)) out.push({ date: d, name: 'Weihnachtspause' })
+    }
+  }
+  return out
+}
+
+/**
+ * Tage mit gleichem Namen zu Zeiträumen zusammenfassen, wenn dazwischen nur Wochenenden
+ * oder andere freie Tage liegen (z. B. Weihnachtspause mit den Feiertagen darin).
+ */
+export function groupClosedDays(days: { date: string; name: string }[]) {
+  const all = new Set(days.map((d) => d.date))
+  const groups: { from: string; to: string; name: string }[] = []
+  for (const d of [...days].sort((a, b) => a.date.localeCompare(b.date))) {
+    const prev = groups.findLast((g) => g.name === d.name)
+    const bridged =
+      prev && eachDay(addDays(prev.to, 1), addDays(d.date, -1)).every((x) => isWeekend(x) || all.has(x))
+    if (prev && bridged) prev.to = d.date
+    else groups.push({ from: d.date, to: d.date, name: d.name })
+  }
+  return groups.sort((a, b) => a.from.localeCompare(b.from))
+}

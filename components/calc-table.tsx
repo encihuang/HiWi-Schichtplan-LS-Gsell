@@ -1,5 +1,5 @@
 import type { CalcResult, Period } from '@/lib/data'
-import { formatDate, isWeekend, WEEKDAYS_SHORT, weekday } from '@/lib/dates'
+import { formatDate, groupClosedDays, isWeekend, WEEKDAYS_SHORT, weekday } from '@/lib/dates'
 
 const n = (v: number, digits = 1) => v.toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 
@@ -22,28 +22,38 @@ export function CalcTable({ calc, period, lecture, meId }: { calc: CalcResult; p
     <div className="mt-2 space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Zeitraum" value={`${formatDate(period.start_date).slice(0, 6)}–${formatDate(period.end_date)}`} sub={`${n(calc.weeks)} Wochen`} />
-        <Stat label="Werktage" value={calc.totalWorkdays} sub="Mo–Fr ohne Feiertage" />
-        <Stat label="Feiertage an Werktagen" value={calc.closedWorkdays} />
+        <Stat label="Werktage" value={calc.totalWorkdays} sub="Mo–Fr ohne Feier- und Schließtage" />
+        <Stat label="Freie Werktage" value={calc.closedWorkdays} sub="Feiertage, Weihnachtspause u. a." />
         <Stat label="Wochenstunden gesamt" value={n(sum((r) => r.staff.hours_per_week), 0)} sub={`${rows.length} Hilfskräfte`} />
       </div>
 
       <div className="rounded-lg bg-white p-3 text-sm shadow-sm">
-        <span className="font-semibold text-lmu-darker">Feiertage im Zeitraum: </span>
+        <span className="font-semibold text-lmu-darker">Feier- und Schließtage im Zeitraum: </span>
         {calc.holidays.length === 0 ? (
           <span className="text-neutral-500">keine</span>
         ) : (
           <ul className="mt-1 flex flex-wrap gap-2">
-            {calc.holidays.map((h) => (
-              <li
-                key={h.date}
-                className={`rounded px-2 py-0.5 ${isWeekend(h.date) ? 'bg-neutral-100 text-neutral-500' : 'bg-lmu-light text-lmu-darker'}`}
-                title={isWeekend(h.date) ? 'fällt auf ein Wochenende' : undefined}
-              >
-                {WEEKDAYS_SHORT[weekday(h.date) - 1]}, {formatDate(h.date)} – {h.name}
-              </li>
-            ))}
+            {groupClosedDays(calc.holidays).map((h) => {
+              const weekend = h.from === h.to && isWeekend(h.from)
+              return (
+                <li
+                  key={h.from + h.name}
+                  className={`rounded px-2 py-0.5 ${weekend ? 'bg-neutral-100 text-neutral-500' : 'bg-lmu-light text-lmu-darker'}`}
+                  title={weekend ? 'fällt auf ein Wochenende' : undefined}
+                >
+                  {h.from === h.to
+                    ? `${WEEKDAYS_SHORT[weekday(h.from) - 1]}, ${formatDate(h.from)}`
+                    : `${formatDate(h.from)}–${formatDate(h.to)}`}{' '}
+                  – {h.name}
+                </li>
+              )
+            })}
           </ul>
         )}
+        <p className="mt-2 text-xs text-neutral-500">
+          Freie Tage zählen nicht als Werktage: Sie verringern das Soll aller Hilfskräfte im gleichen Verhältnis und werden
+          im Kalender nicht belegt.
+        </p>
       </div>
 
       {!rows.length ? (

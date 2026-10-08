@@ -4,7 +4,7 @@ import {
   listDuties, listExceptions, listExtras, listLectures, listLog, listStaff, type AvailabilityStatus, type CalcResult,
 } from './data'
 import {
-  addDays, eachDay, formatDate, formatDateTime, isLecture, PERIOD_LABELS, PERIOD_SHORT, semesterLabel, WEEKDAYS, weekday,
+  addDays, eachDay, formatDate, groupClosedDays, formatDateTime, isLecture, PERIOD_LABELS, PERIOD_SHORT, semesterLabel, WEEKDAYS, weekday,
 } from './dates'
 
 const NL = String.fromCharCode(10)
@@ -167,10 +167,16 @@ export async function loadExport(periodId: number): Promise<ExportData | null> {
     calc,
     emails: Object.fromEntries(staff.filter((s) => s.email).map((s) => [s.name, s.email])),
     facts: [
-      `Werktage im Zeitraum: ${calc.totalWorkdays} (Mo-Fr ohne Feiertage), ${calc.weeks.toLocaleString('de-DE')} Wochen`,
-      `Feiertage im Zeitraum: ${
+      `Werktage im Zeitraum: ${calc.totalWorkdays} (Mo-Fr ohne Feier- und Schließtage), ${calc.weeks.toLocaleString('de-DE')} Wochen`,
+      `Feier- und Schließtage im Zeitraum: ${
         calc.holidays.length
-          ? calc.holidays.map((h) => `${formatDate(h.date)} ${h.name}${weekday(h.date) > 5 ? ' (Wochenende)' : ''}`).join(', ')
+          ? groupClosedDays(calc.holidays)
+              .map((h) =>
+                h.from === h.to
+                  ? `${formatDate(h.from)} ${h.name}${weekday(h.from) > 5 ? ' (Wochenende)' : ''}`
+                  : `${formatDate(h.from)}-${formatDate(h.to)} ${h.name}`,
+              )
+              .join(', ')
           : 'keine'
       }`,
     ],

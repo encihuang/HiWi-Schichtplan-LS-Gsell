@@ -1,7 +1,7 @@
 import 'server-only'
 import { query } from './db'
 import {
-  academicYearPeriods, eachDay, holidaysBetween, isWeekend, PERIOD_KINDS, todayIso, weekday,
+  academicYearPeriods, christmasBreakBetween, eachDay, holidaysBetween, isWeekend, PERIOD_KINDS, todayIso, weekday,
   type PeriodKind,
 } from './dates'
 
@@ -143,7 +143,8 @@ export async function createYear(startYear: number) {
       y.id, k, periods[k][0], periods[k][1],
     ])
   }
-  for (const h of holidaysBetween(periods.ws[0], periods.vfz_ss[1])) {
+  const [from, to] = [periods.ws[0], periods.vfz_ss[1]]
+  for (const h of [...holidaysBetween(from, to), ...christmasBreakBetween(from, to)]) {
     await query('insert into closed_days (year_id, date, name) values ($1, $2, $3) on conflict do nothing', [
       y.id, h.date, h.name,
     ])
