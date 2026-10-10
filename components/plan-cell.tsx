@@ -14,8 +14,6 @@ const STATUS_OPTIONS: { value: AvailabilityStatus | ''; label: string }[] = [
 ]
 
 const DUTY_OPTIONS: { value: DutyKind | ''; label: string }[] = [
-  { value: 'alle', label: 'Alle Aufgaben' },
-  { value: 'geteilt', label: 'Geteilt' },
   { value: 'vor_ort', label: 'Vor Ort' },
   { value: 'remote', label: 'Remote' },
   { value: '', label: 'Kein Dienst' },

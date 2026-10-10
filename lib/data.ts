@@ -17,7 +17,7 @@ export type Staff = {
 export type Year = { id: number; start_year: number }
 export type Period = { id: number; year_id: number; kind: PeriodKind; start_date: string; end_date: string }
 export type ClosedDay = { date: string; name: string }
-export type DutyKind = 'alle' | 'geteilt' | 'vor_ort' | 'remote'
+export type DutyKind = 'vor_ort' | 'remote'
 export type Duty = { staff_id: number; weekday: number; kind: DutyKind; updated_by: string; updated_at: string }
 /** Ausnahme an einem Datum: staff_id fällt aus, substitute_id vertritt (oder noch offen) */
 export type DateException = { date: string; staff_id: number; substitute_id: number | null; updated_by: string; updated_at: string }
@@ -40,8 +40,6 @@ export type DailySlot = { date: string; staff_id: number; updated_by: string; up
 export type LogEntry = { actor: string; message: string; at: string }
 
 export const DUTY_LABELS: Record<DutyKind, string> = {
-  alle: 'Alle Aufgaben',
-  geteilt: 'Geteilt',
   vor_ort: 'Vor Ort',
   remote: 'Remote',
 }
@@ -285,8 +283,6 @@ export function coverageIssues(day: number, duties: Duty[], availability: Availa
   const today = duties.filter((d) => d.weekday === day)
   const issues: string[] = []
   if (!today.length) issues.push('unbesetzt')
-  const shared = today.filter((d) => d.kind === 'geteilt')
-  if (shared.length === 1 && today.length === 1) issues.push('„Geteilt“, aber nur eine Person')
   for (const d of today) {
     const a = availability.find((x) => x.staff_id === d.staff_id && x.weekday === day)?.status
     if (a === 'nein') issues.push(`${names[d.staff_id]} hat „kein Dienst möglich“`)
