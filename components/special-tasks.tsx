@@ -1,7 +1,7 @@
 import { addSpecialTask, deleteSpecialTask, toggleSpecialTask } from '@/app/actions'
 import type { Period, SpecialTask } from '@/lib/data'
 import { formatDateTime } from '@/lib/dates'
-import { SlotButton, type SlotState } from './slot-button'
+import { SlotButton, SubmitButton, type SlotState } from './slot-button'
 
 /** Sonderaufgaben ohne festes Datum, z. B. Vorlesungspodcast. Zählen nicht in die Berechnung. */
 export function SpecialTasks({
@@ -50,9 +50,9 @@ export function SpecialTasks({
                   </form>
                   <form action={deleteSpecialTask}>
                     <input type="hidden" name="task" value={t.id} />
-                    <button className="px-2 text-xs text-red-700 hover:underline" title={`„${t.name}“ löschen`}>
+                    <SubmitButton className="px-2 text-xs text-red-700 hover:underline" title={`„${t.name}“ löschen`}>
                       löschen
-                    </button>
+                    </SubmitButton>
                   </form>
                 </div>
               </li>
@@ -74,7 +74,7 @@ export function SpecialTasks({
         <label className="flex items-center gap-1.5 py-1.5">
           <input type="checkbox" name="take" className="accent-lmu" /> selbst übernehmen
         </label>
-        <button className="rounded bg-lmu px-3 py-1.5 font-medium text-white hover:bg-lmu-dark">Hinzufügen</button>
+        <SubmitButton className="rounded bg-lmu px-3 py-1.5 font-medium text-white hover:bg-lmu-dark">Hinzufügen</SubmitButton>
       </form>
     </div>
   )

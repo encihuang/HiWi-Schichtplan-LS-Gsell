@@ -81,8 +81,7 @@ const dayOk = (d: number) => d >= 1 && d <= 5
 const forWhom = (me: { id: number }, t: { id: number; name: string }) => (t.id === me.id ? '' : ` für ${t.name}`)
 
 export async function setDuty(fd: FormData) {
-  const who = await targetStaff(fd)
-  const period = await lecturePeriod(fd)
+  const [who, period] = await Promise.all([targetStaff(fd), lecturePeriod(fd)])
   const day = num(fd, 'weekday')
   const kind = str(fd, 'kind')
   if (!who || !period || !dayOk(day)) return
@@ -109,8 +108,7 @@ export async function setDuty(fd: FormData) {
 }
 
 export async function setAvailability(fd: FormData) {
-  const who = await targetStaff(fd)
-  const period = await lecturePeriod(fd)
+  const [who, period] = await Promise.all([targetStaff(fd), lecturePeriod(fd)])
   const day = num(fd, 'weekday')
   const status = str(fd, 'status')
   if (!who || !period || !dayOk(day)) return
@@ -135,8 +133,7 @@ export async function setAvailability(fd: FormData) {
 
 /** Vorlesung oder weitere Aufgabe an einem oder mehreren Wochentagen anlegen. */
 export async function addLecture(fd: FormData) {
-  const me = await requireStaff()
-  const period = await lecturePeriod(fd)
+  const [me, period] = await Promise.all([requireStaff(), lecturePeriod(fd)])
   const name = str(fd, 'name')
   const time = str(fd, 'time')
   const days = fd.getAll('weekday').map(Number).filter(dayOk)
@@ -153,8 +150,7 @@ export async function addLecture(fd: FormData) {
 }
 
 export async function deleteLecture(fd: FormData) {
-  const me = await requireStaff()
-  const period = await lecturePeriod(fd)
+  const [me, period] = await Promise.all([requireStaff(), lecturePeriod(fd)])
   const name = str(fd, 'name')
   if (!period || !name) return
   await query('delete from lectures where period_id = $1 and name = $2', [period.id, name])
@@ -193,8 +189,7 @@ export async function toggleLecture(fd: FormData) {
  * extra / unextra = an diesem Datum zusätzlich Dienst.
  */
 export async function dateException(fd: FormData) {
-  const me = await requireStaff()
-  const period = await lecturePeriod(fd)
+  const [me, period] = await Promise.all([requireStaff(), lecturePeriod(fd)])
   const date = isoOrNull(str(fd, 'date'))
   const op = str(fd, 'op')
   if (!period || !date) return

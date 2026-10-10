@@ -5,7 +5,7 @@ import {
 import { WEEKDAYS } from '@/lib/dates'
 import { AVAILABILITY_STYLES } from '@/lib/plan-styles'
 import { PlanCell } from './plan-cell'
-import { SlotButton, type SlotState } from './slot-button'
+import { SlotButton, SubmitButton, type SlotState } from './slot-button'
 
 const DAYS = [1, 2, 3, 4, 5]
 
@@ -201,9 +201,9 @@ function Lectures({
                     <form action={deleteLecture} className="inline">
                       <input type="hidden" name="period" value={period.id} />
                       <input type="hidden" name="name" value={name} />
-                      <button className="ml-2 text-xs font-normal text-red-700 hover:underline" title={`„${name}“ löschen`}>
+                      <SubmitButton className="ml-2 text-xs font-normal text-red-700 hover:underline" title={`„${name}“ löschen`}>
                         löschen
-                      </button>
+                      </SubmitButton>
                     </form>
                   </th>
                   {DAYS.map((day) => {
@@ -256,7 +256,7 @@ function Lectures({
             ))}
           </div>
         </fieldset>
-        <button className="rounded bg-lmu px-3 py-1.5 font-medium text-white hover:bg-lmu-dark">Hinzufügen</button>
+        <SubmitButton className="rounded bg-lmu px-3 py-1.5 font-medium text-white hover:bg-lmu-dark">Hinzufügen</SubmitButton>
       </form>
     </div>
   )

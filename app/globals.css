@@ -15,6 +15,36 @@ body {
   color: #1d1d1b;
 }
 
+/* Tailwind 4 setzt bei Buttons den Standard-Cursor; Klickbares soll als solches erkennbar sein. */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  summary,
+  label:has(> input[type='checkbox']) {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  button,
+  a {
+    transition: background-color 120ms, border-color 120ms, color 120ms, opacity 120ms, transform 80ms;
+  }
+  button:not(:disabled):active,
+  a:active {
+    transform: scale(0.97);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-lmu-darker);
+    outline-offset: 2px;
+  }
+}
+
+/* Läuft eine Speicherung, zeigt der Cursor das an. */
+[aria-busy='true'] {
+  cursor: progress !important;
+}
+
 @media print {
   .no-print { display: none !important; }
 }

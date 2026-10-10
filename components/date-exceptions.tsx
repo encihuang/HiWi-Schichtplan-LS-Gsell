@@ -1,6 +1,7 @@
 import { dateException } from '@/app/actions'
 import { DUTY_LABELS, type ClosedDay, type DateException, type DateExtra, type Duty, type Period } from '@/lib/data'
 import { addDays, eachDay, formatDate, MONTHS, todayIso, WEEKDAYS_SHORT, weekday } from '@/lib/dates'
+import { SubmitButton } from './slot-button'
 
 function Action({ period, date, op, staff, label, tone }: {
   period: number; date: string; op: string; staff?: number; label: string; tone: 'red' | 'green' | 'grey'
@@ -16,7 +17,7 @@ function Action({ period, date, op, staff, label, tone }: {
       <input type="hidden" name="date" value={date} />
       <input type="hidden" name="op" value={op} />
       {staff && <input type="hidden" name="staff" value={staff} />}
-      <button className={`rounded border bg-white px-2 py-1 text-xs leading-tight sm:px-1.5 sm:py-0.5 sm:text-[11px] ${tones[tone]}`}>{label}</button>
+      <SubmitButton className={`rounded border bg-white px-2 py-1 text-xs leading-tight sm:px-1.5 sm:py-0.5 sm:text-[11px] ${tones[tone]}`}>{label}</SubmitButton>
     </form>
   )
 }

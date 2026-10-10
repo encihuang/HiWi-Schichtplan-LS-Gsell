@@ -1,4 +1,5 @@
 import 'server-only'
+import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { getStaff } from './data'
 
@@ -11,13 +12,13 @@ export async function sha256(text: string) {
   return Buffer.from(buf).toString('hex')
 }
 
-/** Die ausgewählte Person (aktiv), sonst null. */
-export async function currentStaff() {
+/** Die ausgewählte Person (aktiv), sonst null. Pro Anfrage nur einmal geladen (Layout + Seite). */
+export const currentStaff = cache(async () => {
   const id = Number((await cookies()).get(STAFF_COOKIE)?.value)
   if (!id) return null
   const s = await getStaff(id)
   return s?.active ? s : null
-}
+})
 
 export async function requireStaff() {
   const s = await currentStaff()

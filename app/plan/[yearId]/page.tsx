@@ -11,6 +11,7 @@ import { DateExceptions } from '@/components/date-exceptions'
 import { SpecialTasks } from '@/components/special-tasks'
 import { DailyPlan } from '@/components/daily-plan'
 import { CalcTable } from '@/components/calc-table'
+import { LinkPending } from '@/components/link-pending'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,14 +22,14 @@ export default async function PlanPage({
   params: Promise<{ yearId: string }>
   searchParams: Promise<{ tab?: string }>
 }) {
-  const me = await currentStaff()
+  const [{ yearId }, { tab }] = await Promise.all([params, searchParams])
+  // Parallel laden: jede Abfrage ist ein eigener Roundtrip zur Datenbank.
+  const [me, year, periods] = await Promise.all([
+    currentStaff(), getYear(Number(yearId)), listPeriods(Number(yearId)),
+  ])
   if (!me) redirect('/')
-  const { yearId } = await params
-  const { tab } = await searchParams
-  const year = await getYear(Number(yearId))
   if (!year) notFound()
 
-  const periods = await listPeriods(year.id)
   const today = todayIso()
   const period =
     periods.find((p) => p.kind === tab) ??
@@ -37,21 +38,22 @@ export default async function PlanPage({
     periods[0]
   if (!period) notFound()
 
-  const [staff, closed, log, others, specialTasks] = await Promise.all([
-    listStaff(),
-    listClosedDays(year.id),
-    listLog(period.id, 10),
-    canEditOthers(),
-    listSpecialTasks(period.id),
-  ])
   const lecture = isLecture(period.kind)
-  const [weekly, availability, lectures, exceptions, extras] = lecture
-    ? await Promise.all([
-        listDuties(period.id), listAvailability(period.id), listLectures(period.id),
-        listExceptions(period.id), listExtras(period.id),
-      ])
-    : [[], [], [], [], []]
-  const daily = lecture ? [] : await listDaily(period.id)
+  const none = Promise.resolve([])
+  const [staff, closed, log, others, specialTasks, weekly, availability, lectures, exceptions, extras, daily] =
+    await Promise.all([
+      listStaff(),
+      listClosedDays(year.id),
+      listLog(period.id, 10),
+      canEditOthers(),
+      listSpecialTasks(period.id),
+      lecture ? listDuties(period.id) : none,
+      lecture ? listAvailability(period.id) : none,
+      lecture ? listLectures(period.id) : none,
+      lecture ? listExceptions(period.id) : none,
+      lecture ? listExtras(period.id) : none,
+      lecture ? none : listDaily(period.id),
+    ])
   const active = staff.filter((s) => s.active)
   const calc = lecture ? calcWeekly(period, active, closed, weekly, exceptions, extras) : calcDaily(period, active, closed, daily)
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
@@ -86,10 +88,12 @@ export default async function PlanPage({
                 : 'border-transparent bg-white/60 text-neutral-600 hover:text-lmu-darker sm:bg-transparent sm:hover:bg-white/60'
             }`}
           >
-            {PERIOD_LABELS[p.kind]}
-            <span className="block text-[11px] sm:text-xs font-normal text-neutral-500 tabular-nums">
-              {formatDate(p.start_date)} – {formatDate(p.end_date)}
-            </span>
+            <LinkPending>
+              {PERIOD_LABELS[p.kind]}
+              <span className="block text-[11px] sm:text-xs font-normal text-neutral-500 tabular-nums">
+                {formatDate(p.start_date)} – {formatDate(p.end_date)}
+              </span>
+            </LinkPending>
           </Link>
         ))}
       </nav>

@@ -2,8 +2,10 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Roboto } from 'next/font/google'
 import { Logo } from '@/components/logo'
+import { LinkPending } from '@/components/link-pending'
 import { currentStaff } from '@/lib/session'
 import { switchStaff } from './actions'
+import { SubmitButton } from '@/components/slot-button'
 import { APP_TITLE, CHAIR } from '@/lib/brand'
 import './globals.css'
 
@@ -30,13 +32,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </Link>
             <nav className="flex w-full flex-wrap items-center gap-x-1 gap-y-1 text-sm md:w-auto">
               <Link href="/plan" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
-                Plan
+                <LinkPending>Plan</LinkPending>
               </Link>
               <Link href="/uebersicht" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
-                Übersicht
+                <LinkPending>Übersicht</LinkPending>
               </Link>
               <Link href="/einstellungen" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
-                Einstellungen
+                <LinkPending>Einstellungen</LinkPending>
               </Link>
               {me && (
                 <form
@@ -47,7 +49,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     <span className="hidden sm:inline">Angemeldet als </span>
                     <strong className="text-lmu-darker">{me.name}</strong>
                   </span>
-                  <button className="text-lmu underline underline-offset-2 hover:text-lmu-darker">wechseln</button>
+                  <SubmitButton className="text-lmu underline underline-offset-2 hover:text-lmu-darker">wechseln</SubmitButton>
                 </form>
               )}
             </nav>
