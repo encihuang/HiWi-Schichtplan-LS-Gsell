@@ -1,4 +1,4 @@
-import { addLecture, deleteLecture, toggleLecture } from '@/app/actions'
+import { addLecture, assignLecture, deleteLecture, toggleLecture } from '@/app/actions'
 import {
   AVAILABILITY_LABELS, coverageIssues, DUTY_LABELS, type Availability, type Duty, type Lecture, type Period, type Staff,
 } from '@/lib/data'
@@ -6,11 +6,12 @@ import { WEEKDAYS } from '@/lib/dates'
 import { AVAILABILITY_STYLES } from '@/lib/plan-styles'
 import { PlanCell } from './plan-cell'
 import { SlotButton, SubmitButton, type SlotState } from './slot-button'
+import { StaffSelect, type Person } from './staff-select'
 
 const DAYS = [1, 2, 3, 4, 5]
 
 export function WeeklyPlan({
-  period, staff, duties, availability, lectures, calendar, names, meId, canEditOthers,
+  period, staff, duties, availability, lectures, calendar, names, meId, canEditOthers, people,
 }: {
   calendar: React.ReactNode
   period: Period
@@ -21,6 +22,7 @@ export function WeeklyPlan({
   names: Record<number, string>
   meId: number
   canEditOthers: boolean
+  people: Person[]
 }) {
   // eigene Zeile zuerst
   const rows = [...staff].sort((a, b) => Number(b.id === meId) - Number(a.id === meId))
@@ -160,19 +162,20 @@ export function WeeklyPlan({
 
       {calendar}
 
-      <Lectures period={period} lectures={lectures} names={names} meId={meId} canEditOthers={canEditOthers} />
+      <Lectures period={period} lectures={lectures} names={names} meId={meId} canEditOthers={canEditOthers} people={people} />
     </div>
   )
 }
 
 function Lectures({
-  period, lectures, names, meId, canEditOthers,
+  period, lectures, names, meId, canEditOthers, people,
 }: {
   period: Period
   lectures: Lecture[]
   names: Record<number, string>
   meId: number
   canEditOthers: boolean
+  people: Person[]
 }) {
   const groups = [...new Set(lectures.map((l) => l.name))]
   return (
@@ -216,6 +219,21 @@ function Lectures({
                         : canEditOthers
                           ? 'taken-editable'
                           : 'taken'
+                    if (canEditOthers) {
+                      return (
+                        <td key={day} className="align-top">
+                          <StaffSelect
+                            action={assignLecture}
+                            fields={{ lecture: l.id }}
+                            value={l.staff_id}
+                            people={people}
+                            names={names}
+                            label={`„${name}“ ${WEEKDAYS[day - 1]}`}
+                          />
+                          {l.time && <span className="block px-1 text-xs text-neutral-500">{l.time}</span>}
+                        </td>
+                      )
+                    }
                     return (
                       <td key={day}>
                         <form action={toggleLecture}>

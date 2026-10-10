@@ -1,17 +1,19 @@
-import { addSpecialTask, deleteSpecialTask, toggleSpecialTask } from '@/app/actions'
+import { addSpecialTask, assignSpecialTask, deleteSpecialTask, toggleSpecialTask } from '@/app/actions'
 import type { Period, SpecialTask } from '@/lib/data'
 import { formatDateTime } from '@/lib/dates'
 import { SlotButton, SubmitButton, type SlotState } from './slot-button'
+import { StaffSelect, type Person } from './staff-select'
 
 /** Sonderaufgaben ohne festes Datum, z. B. Vorlesungspodcast. Zählen nicht in die Berechnung. */
 export function SpecialTasks({
-  period, tasks, names, meId, canEditOthers,
+  period, tasks, names, meId, canEditOthers, people,
 }: {
   period: Period
   tasks: SpecialTask[]
   names: Record<number, string>
   meId: number
   canEditOthers: boolean
+  people: Person[]
 }) {
   return (
     <div className="rounded-lg bg-white p-4 shadow-sm">
@@ -42,12 +44,24 @@ export function SpecialTasks({
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <form action={toggleSpecialTask} className="w-44">
-                    <input type="hidden" name="task" value={t.id} />
-                    <SlotButton state={state} className="py-2 font-semibold">
-                      {t.staff_id ? names[t.staff_id] : '+ übernehmen'}
-                    </SlotButton>
-                  </form>
+                  {canEditOthers ? (
+                    <StaffSelect
+                      action={assignSpecialTask}
+                      fields={{ task: t.id }}
+                      value={t.staff_id}
+                      people={people}
+                      names={names}
+                      label={`Sonderaufgabe „${t.name}“`}
+                      className="w-44"
+                    />
+                  ) : (
+                    <form action={toggleSpecialTask} className="w-44">
+                      <input type="hidden" name="task" value={t.id} />
+                      <SlotButton state={state} className="py-2 font-semibold">
+                        {t.staff_id ? names[t.staff_id] : '+ übernehmen'}
+                      </SlotButton>
+                    </form>
+                  )}
                   <form action={deleteSpecialTask}>
                     <input type="hidden" name="task" value={t.id} />
                     <SubmitButton className="px-2 text-xs text-red-700 hover:underline" title={`„${t.name}“ löschen`}>

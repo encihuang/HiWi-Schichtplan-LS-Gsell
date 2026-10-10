@@ -1,11 +1,12 @@
-import { toggleDaily } from '@/app/actions'
+import { assignDaily, toggleDaily } from '@/app/actions'
 import type { ClosedDay, DailySlot, Period } from '@/lib/data'
 import { addDays, eachDay, formatDate, formatDateTime, MONTHS, WEEKDAYS_SHORT, weekday } from '@/lib/dates'
 import { SlotButton, type SlotState } from './slot-button'
+import { StaffSelect, type Person } from './staff-select'
 
 /** Kalender Mo–Fr je Monat; jeder Werktag hat eine Person. */
 export function DailyPlan({
-  period, slots, closed, names, meId, canEditOthers,
+  period, slots, closed, names, meId, canEditOthers, people,
 }: {
   period: Period
   slots: DailySlot[]
@@ -13,6 +14,7 @@ export function DailyPlan({
   names: Record<number, string>
   meId: number
   canEditOthers: boolean
+  people: Person[]
 }) {
   const bySlot = new Map(slots.map((s) => [s.date, s]))
   const byClosed = new Map(closed.map((c) => [c.date, c.name]))
@@ -62,6 +64,22 @@ export function DailyPlan({
                     )
                   }
                   const slot = bySlot.get(d)
+                  if (canEditOthers) {
+                    return (
+                      <div key={d} className="flex h-12 items-center justify-between gap-2 rounded border border-neutral-200 px-2 sm:h-16 sm:flex-col sm:items-stretch sm:justify-center sm:gap-1">
+                        {label}
+                        <StaffSelect
+                          action={assignDaily}
+                          fields={{ period: period.id, date: d }}
+                          value={slot?.staff_id ?? null}
+                          people={people}
+                          names={names}
+                          label={`Dienst am ${formatDate(d)}`}
+                          className="min-w-0 flex-1 sm:flex-none"
+                        />
+                      </div>
+                    )
+                  }
                   const state: SlotState = !slot
                     ? 'free'
                     : slot.staff_id === meId

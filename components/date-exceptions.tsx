@@ -2,9 +2,10 @@ import { dateException } from '@/app/actions'
 import { DUTY_LABELS, type ClosedDay, type DateException, type DateExtra, type Duty, type Period } from '@/lib/data'
 import { addDays, eachDay, formatDate, MONTHS, todayIso, WEEKDAYS_SHORT, weekday } from '@/lib/dates'
 import { SubmitButton } from './slot-button'
+import { StaffSelect, type Person } from './staff-select'
 
-function Action({ period, date, op, staff, label, tone }: {
-  period: number; date: string; op: string; staff?: number; label: string; tone: 'red' | 'green' | 'grey'
+function Action({ period, date, op, staff, person, label, tone }: {
+  period: number; date: string; op: string; staff?: number; person?: number; label: string; tone: 'red' | 'green' | 'grey'
 }) {
   const tones = {
     red: 'border-red-300 text-red-700 hover:bg-red-50',
@@ -17,6 +18,7 @@ function Action({ period, date, op, staff, label, tone }: {
       <input type="hidden" name="date" value={date} />
       <input type="hidden" name="op" value={op} />
       {staff && <input type="hidden" name="staff" value={staff} />}
+      {person && <input type="hidden" name="person" value={person} />}
       <SubmitButton className={`rounded border bg-white px-2 py-1 text-xs leading-tight sm:px-1.5 sm:py-0.5 sm:text-[11px] ${tones[tone]}`}>{label}</SubmitButton>
     </form>
   )
@@ -24,7 +26,7 @@ function Action({ period, date, op, staff, label, tone }: {
 
 /** Einzelne Tage der Vorlesungszeit: regulärer Dienst je Datum, Ausfälle und Vertretungen. */
 export function DateExceptions({
-  period, duties, exceptions, extras, closed, names, meId,
+  period, duties, exceptions, extras, closed, names, meId, planning, people,
 }: {
   period: Period
   duties: Duty[]
@@ -33,6 +35,8 @@ export function DateExceptions({
   closed: ClosedDay[]
   names: Record<number, string>
   meId: number
+  planning: boolean
+  people: Person[]
 }) {
   const byClosed = new Map(closed.map((c) => [c.date, c.name]))
   const today = todayIso()
@@ -129,7 +133,27 @@ export function DateExceptions({
                                       )}
                                     </div>
                                   )}
-                                  {!past && (
+                                  {!past && planning && (
+                                    <div className="mt-0.5 grid gap-1">
+                                      {e ? (
+                                        <>
+                                          <StaffSelect
+                                            action={dateException}
+                                            fields={{ period: period.id, date: d, op: 'substitute', staff: r.staff_id }}
+                                            value={e.substitute_id}
+                                            people={people.filter((p) => p.id !== r.staff_id)}
+                                            names={names}
+                                            empty="– Vertretung offen –"
+                                            label={`Vertretung für ${names[r.staff_id]} am ${formatDate(d)}`}
+                                          />
+                                          <Action period={period.id} date={d} op="present" person={r.staff_id} label="doch da" tone="grey" />
+                                        </>
+                                      ) : (
+                                        <Action period={period.id} date={d} op="absent" person={r.staff_id} label="fällt aus" tone="red" />
+                                      )}
+                                    </div>
+                                  )}
+                                  {!past && !planning && (
                                     <div className="mt-0.5 flex flex-wrap gap-1">
                                       {mine && !e && <Action period={period.id} date={d} op="absent" label="kann nicht" tone="red" />}
                                       {mine && e && <Action period={period.id} date={d} op="present" label="doch da" tone="grey" />}
@@ -148,15 +172,29 @@ export function DateExceptions({
                               <li key={`x${x.staff_id}`}>
                                 <span className={x.staff_id === meId ? 'font-semibold text-lmu-darker' : ''}>{names[x.staff_id]}</span>{' '}
                                 <span className="text-neutral-400">zusätzlich</span>
-                                {!past && x.staff_id === meId && (
+                                {!past && (planning || x.staff_id === meId) && (
                                   <div className="mt-0.5">
-                                    <Action period={period.id} date={d} op="unextra" label="entfernen" tone="grey" />
+                                    <Action period={period.id} date={d} op="unextra" person={x.staff_id} label="entfernen" tone="grey" />
                                   </div>
                                 )}
                               </li>
                             ))}
                           </ul>
-                          {!past && !iAmOn && !exc.some((e) => e.staff_id === meId) && (
+                          {!past && planning && (
+                            <StaffSelect
+                              action={dateException}
+                              fields={{ period: period.id, date: d, op: 'extra' }}
+                              value={null}
+                              people={people.filter(
+                                (p) => !regular.some((r) => r.staff_id === p.id) && !extra.some((x) => x.staff_id === p.id),
+                              )}
+                              names={names}
+                              empty="+ zusätzlich …"
+                              label={`Zusätzlicher Dienst am ${formatDate(d)}`}
+                              className="mt-1"
+                            />
+                          )}
+                          {!past && !planning && !iAmOn && !exc.some((e) => e.staff_id === meId) && (
                             <div className="mt-1">
                               <Action period={period.id} date={d} op="extra" label="+ ich zusätzlich" tone="green" />
                             </div>

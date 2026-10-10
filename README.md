@@ -11,6 +11,8 @@ Wintersemester, vorlesungsfreier Zeit WiSe, Sommersemester und vorlesungsfreier 
 - Berechnung Soll/Ist nach Wochenstunden (wie im bisherigen Excel-Plan)
 - „Zuletzt geändert von … am …“ und Änderungsverlauf
 - PDF- und Excel-Export mit „Stand: …“
+- Planungsmodus (Schalter auf der Planseite): Verfügbarkeiten und Schichten aller Hilfskräfte bearbeiten,
+  Schichten direkt einer Person zuweisen, Ausfälle und Vertretungen eintragen
 - Einstellungen: Hilfskräfte (Name, h/Woche, Beginn/Ende, aktiv), Zeiträume, Feier-/Schließtage.
   Neue Studienjahre werden nach den [LMU-Vorlesungszeiten](https://www.lmu.de/de/workspace-fuer-studierende/1x1-des-studiums/vorlesungszeiten/) angelegt.
 
@@ -31,6 +33,6 @@ Ohne `DATABASE_URL` läuft lokal eine eingebettete Datenbank in `.data/` (nicht 
 | --- | --- |
 | `DATABASE_URL` | Neon-Postgres (Produktion). Tabellen werden beim ersten Zugriff angelegt. |
 | `APP_PASSWORD` | optional: gemeinsames Passwort für die ganze App |
-| `ADMIN_PASSWORD` | optional: Passwort für die Einstellungen; damit angemeldet kann man auch fremde Schichten entfernen |
+| `ADMIN_PASSWORD` | optional: Passwort für die Einstellungen und den Planungsmodus |
 
 Lokale `.env.local` liegt in Dev-Lokal (siehe globale Anweisungen), nicht im Repo.

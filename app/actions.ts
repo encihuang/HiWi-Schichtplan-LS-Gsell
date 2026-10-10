@@ -10,7 +10,8 @@ import {
 } from '@/lib/data'
 import { formatDate, PERIOD_KINDS, todayIso, WEEKDAYS, weekday, wsLecture, yearLabel, isLecture } from '@/lib/dates'
 import {
-  ACCESS_COOKIE, ADMIN_COOKIE, canEditOthers, currentStaff, requireAdmin, requireStaff, sha256, STAFF_COOKIE,
+  ACCESS_COOKIE, ADMIN_COOKIE, canEditOthers, currentStaff, isAdmin, PLAN_COOKIE, requireAdmin, requireStaff, sha256,
+  STAFF_COOKIE,
 } from '@/lib/session'
 
 const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax' as const, path: '/', maxAge: 60 * 60 * 24 * 365 }
@@ -46,6 +47,20 @@ export async function login(_: string | null, fd: FormData) {
   redirect(next.startsWith('/') ? next : '/')
 }
 
+// --- Planungsmodus -------------------------------------------------------------
+
+/** Planungsmodus ein/aus. Gilt bis zum Schließen des Browsers. */
+export async function setPlanningMode(fd: FormData) {
+  const on = str(fd, 'on') === '1'
+  const back = str(fd, 'back')
+  const next = back.startsWith('/') ? back : '/plan'
+  if (on && !(await isAdmin())) redirect(`/login?kind=admin&next=${encodeURIComponent(next)}`)
+  const jar = await cookies()
+  if (on) jar.set(PLAN_COOKIE, '1', { httpOnly: true, sameSite: 'lax', path: '/' })
+  else jar.delete(PLAN_COOKIE)
+  revalidatePath('/', 'layout')
+}
+
 // --- Jahre -------------------------------------------------------------------
 
 export async function addYear() {
@@ -63,7 +78,7 @@ export async function addYear() {
 
 // --- Schichten ---------------------------------------------------------------
 
-/** Zeile einer anderen Person nur mit Einstellungs-Anmeldung (ADMIN_PASSWORD). */
+/** Zeile einer anderen Person nur im Planungsmodus. */
 async function targetStaff(fd: FormData) {
   const me = await requireStaff()
   const id = num(fd, 'staff') || me.id
@@ -182,19 +197,89 @@ export async function toggleLecture(fd: FormData) {
   revalidatePath('/plan', 'layout')
 }
 
+/** Planungsmodus: Person (oder 0 = frei) für eine Schicht; null, wenn nicht erlaubt bzw. unbekannt. */
+async function planningAssignee(fd: FormData) {
+  const [me, ok] = await Promise.all([requireStaff(), canEditOthers()])
+  if (!ok) return null
+  const id = num(fd, 'assignee')
+  if (!id) return { me, target: null }
+  const target = await getStaff(id)
+  return target ? { me, target } : null
+}
+
+/** Planungsmodus: Vorlesungsbetreuung einer beliebigen Person zuweisen oder freigeben. */
+export async function assignLecture(fd: FormData) {
+  const who = await planningAssignee(fd)
+  if (!who) return
+  const [l] = await query<{ period_id: number; name: string; weekday: number }>(
+    `update lectures set staff_id = $2, updated_by = $3, updated_at = now() where id = $1
+     returning period_id, name, weekday`,
+    [num(fd, 'lecture'), who.target?.id ?? null, who.me.name],
+  )
+  if (l) {
+    const label = `„${l.name}“ ${WEEKDAYS[l.weekday - 1]}`
+    await addLog(l.period_id, who.me.name, who.target ? `${label}: ${who.target.name} eingeteilt` : `${label} freigegeben`)
+  }
+  revalidatePath('/plan', 'layout')
+}
+
+/** Planungsmodus: Sonderaufgabe einer beliebigen Person zuweisen oder freigeben. */
+export async function assignSpecialTask(fd: FormData) {
+  const who = await planningAssignee(fd)
+  if (!who) return
+  const [t] = await query<{ period_id: number; name: string }>(
+    `update special_tasks set staff_id = $2, updated_by = $3, updated_at = now() where id = $1
+     returning period_id, name`,
+    [num(fd, 'task'), who.target?.id ?? null, who.me.name],
+  )
+  if (t) {
+    const label = `Sonderaufgabe „${t.name}“`
+    await addLog(t.period_id, who.me.name, who.target ? `${label}: ${who.target.name} eingeteilt` : `${label} freigegeben`)
+  }
+  revalidatePath('/', 'layout')
+}
+
+/** Planungsmodus: Tag der vorlesungsfreien Zeit einer beliebigen Person zuweisen oder freigeben. */
+export async function assignDaily(fd: FormData) {
+  const [who, period] = await Promise.all([planningAssignee(fd), getPeriod(num(fd, 'period'))])
+  const date = isoOrNull(str(fd, 'date'))
+  if (!who || !period || isLecture(period.kind) || !date) return
+  if (!workdaysOf(period, await listClosedDays(period.year_id)).includes(date)) return
+  if (who.target) {
+    await query(
+      `insert into daily_slots (period_id, date, staff_id, updated_by) values ($1, $2, $3, $4)
+       on conflict (period_id, date) do update set staff_id = $3, updated_by = $4, updated_at = now()`,
+      [period.id, date, who.target.id, who.me.name],
+    )
+    await addLog(period.id, who.me.name, `${formatDate(date)}: ${who.target.name} eingeteilt`)
+  } else {
+    await query('delete from daily_slots where period_id = $1 and date = $2', [period.id, date])
+    await addLog(period.id, who.me.name, `${formatDate(date)} freigegeben`)
+  }
+  revalidatePath('/plan', 'layout')
+}
+
 /**
  * Ausnahmen in der Vorlesungszeit:
  * absent = ich kann an diesem Datum nicht, present = doch da,
  * cover = Vertretung für "staff" übernehmen, uncover = Vertretung abgeben,
  * extra / unextra = an diesem Datum zusätzlich Dienst.
+ * Im Planungsmodus gelten absent/present/extra/unextra für "person" (sonst für mich), und
+ * substitute setzt die Vertretung ("assignee", 0 = offen) für "staff".
  */
 export async function dateException(fd: FormData) {
-  const [me, period] = await Promise.all([requireStaff(), lecturePeriod(fd)])
+  const [self, period, planning] = await Promise.all([requireStaff(), lecturePeriod(fd), canEditOthers()])
   const date = isoOrNull(str(fd, 'date'))
   const op = str(fd, 'op')
   if (!period || !date) return
   if (!workdaysOf(period, await listClosedDays(period.year_id)).includes(date)) return
   const day = formatDate(date)
+  // me = betroffene Person, self = wer die Änderung vornimmt
+  // Planungsmodus: betroffene Person aus "person" bzw. aus der Auswahl ("assignee", bei extra)
+  const personId = op === 'substitute' ? 0 : num(fd, 'person') || num(fd, 'assignee')
+  const me = planning && personId && personId !== self.id ? await getStaff(personId) : self
+  if (!me) return
+  const forWho = me.id === self.id ? '' : ` (${me.name})`
 
   if (op === 'absent' || op === 'present') {
     const [duty] = await query('select 1 from weekly_duties where period_id = $1 and staff_id = $2 and weekday = $3', [
@@ -205,24 +290,24 @@ export async function dateException(fd: FormData) {
       await query(
         `insert into date_exceptions (period_id, date, staff_id, updated_by) values ($1, $2, $3, $4)
          on conflict do nothing`,
-        [period.id, date, me.id, me.name],
+        [period.id, date, me.id, self.name],
       )
-      await addLog(period.id, me.name, `${day}: kann nicht (Vertretung gesucht)`)
+      await addLog(period.id, self.name, `${day}: kann nicht (Vertretung gesucht)${forWho}`)
     } else {
       await query('delete from date_exceptions where period_id = $1 and date = $2 and staff_id = $3', [period.id, date, me.id])
-      await addLog(period.id, me.name, `${day}: doch da`)
+      await addLog(period.id, self.name, `${day}: doch da${forWho}`)
     }
   } else if (op === 'extra') {
     const done = await query(
       'insert into date_extras (period_id, date, staff_id, updated_by) values ($1, $2, $3, $4) on conflict do nothing returning 1',
-      [period.id, date, me.id, me.name],
+      [period.id, date, me.id, self.name],
     )
-    if (done.length) await addLog(period.id, me.name, `${day}: zusätzlich Dienst`)
+    if (done.length) await addLog(period.id, self.name, `${day}: zusätzlich Dienst${forWho}`)
   } else if (op === 'unextra') {
     const done = await query('delete from date_extras where period_id = $1 and date = $2 and staff_id = $3 returning 1', [
       period.id, date, me.id,
     ])
-    if (done.length) await addLog(period.id, me.name, `${day}: zusätzlicher Dienst entfernt`)
+    if (done.length) await addLog(period.id, self.name, `${day}: zusätzlicher Dienst entfernt${forWho}`)
   } else if (op === 'cover' || op === 'uncover') {
     const absentId = num(fd, 'staff')
     const absent = await getStaff(absentId)
@@ -231,16 +316,29 @@ export async function dateException(fd: FormData) {
       const done = await query(
         `update date_exceptions set substitute_id = $4, updated_by = $5, updated_at = now()
          where period_id = $1 and date = $2 and staff_id = $3 and substitute_id is null returning 1`,
-        [period.id, date, absentId, me.id, me.name],
+        [period.id, date, absentId, me.id, self.name],
       )
-      if (done.length) await addLog(period.id, me.name, `${day}: Vertretung für ${absent.name} übernommen`)
+      if (done.length) await addLog(period.id, self.name, `${day}: Vertretung für ${absent.name} übernommen${forWho}`)
     } else {
       const done = await query(
         `update date_exceptions set substitute_id = null, updated_by = $5, updated_at = now()
          where period_id = $1 and date = $2 and staff_id = $3 and substitute_id = $4 returning 1`,
-        [period.id, date, absentId, me.id, me.name],
+        [period.id, date, absentId, me.id, self.name],
       )
-      if (done.length) await addLog(period.id, me.name, `${day}: Vertretung für ${absent.name} abgegeben`)
+      if (done.length) await addLog(period.id, self.name, `${day}: Vertretung für ${absent.name} abgegeben${forWho}`)
+    }
+  } else if (op === 'substitute' && planning) {
+    const absent = await getStaff(num(fd, 'staff'))
+    const subId = num(fd, 'assignee')
+    const sub = subId ? await getStaff(subId) : null
+    if (!absent || (subId && !sub) || subId === absent.id) return
+    const done = await query(
+      `update date_exceptions set substitute_id = $4, updated_by = $5, updated_at = now()
+       where period_id = $1 and date = $2 and staff_id = $3 returning 1`,
+      [period.id, date, absent.id, sub?.id ?? null, self.name],
+    )
+    if (done.length) {
+      await addLog(period.id, self.name, sub ? `${day}: ${sub.name} vertritt ${absent.name}` : `${day}: Vertretung für ${absent.name} offen`)
     }
   }
   revalidatePath('/plan', 'layout')

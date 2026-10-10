@@ -12,6 +12,8 @@ import { SpecialTasks } from '@/components/special-tasks'
 import { DailyPlan } from '@/components/daily-plan'
 import { CalcTable } from '@/components/calc-table'
 import { LinkPending } from '@/components/link-pending'
+import { SubmitButton } from '@/components/slot-button'
+import { setPlanningMode } from '@/app/actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,6 +59,8 @@ export default async function PlanPage({
   const active = staff.filter((s) => s.active)
   const calc = lecture ? calcWeekly(period, active, closed, weekly, exceptions, extras) : calcDaily(period, active, closed, daily)
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
+  const people = active.map((s) => ({ id: s.id, name: s.name }))
+  const here = `/plan/${year.id}?tab=${period.kind}`
   const last = log[0]
 
   return (
@@ -67,7 +71,18 @@ export default async function PlanPage({
           <span className="text-neutral-300 mx-2">/</span>
           {yearLabel(year.start_year)}
         </h1>
-        <div className="flex gap-2 text-sm no-print">
+        <div className="flex flex-wrap gap-2 text-sm no-print">
+          <form action={setPlanningMode}>
+            <input type="hidden" name="on" value={others ? '' : '1'} />
+            <input type="hidden" name="back" value={here} />
+            <SubmitButton
+              className={`rounded border px-3 py-1.5 font-medium ${
+                others ? 'border-amber-500 bg-amber-400 text-amber-950 hover:bg-amber-300' : 'border-lmu text-lmu-darker hover:bg-lmu-light'
+              }`}
+            >
+              {others ? 'Planungsmodus beenden' : 'Planungsmodus'}
+            </SubmitButton>
+          </form>
           <a href={`/export/${period.id}/pdf`} className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
             PDF herunterladen
           </a>
@@ -98,6 +113,13 @@ export default async function PlanPage({
         ))}
       </nav>
 
+      {others && (
+        <div className="mt-3 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2.5 text-sm text-amber-950" role="status">
+          <strong>Planungsmodus aktiv:</strong> Du kannst Verfügbarkeiten und Schichten aller Hilfskräfte bearbeiten.
+          Änderungen werden mit deinem Namen im Verlauf gespeichert.
+        </div>
+      )}
+
       <p className="mt-3 text-sm text-neutral-600">
         {last ? (
           <>
@@ -125,19 +147,22 @@ export default async function PlanPage({
                 closed={closed}
                 names={names}
                 meId={me.id}
+                planning={others}
+                people={people}
               />
             }
             names={names}
             meId={me.id}
             canEditOthers={others}
+            people={people}
           />
         ) : (
-          <DailyPlan period={period} slots={daily} closed={closed} names={names} meId={me.id} canEditOthers={others} />
+          <DailyPlan period={period} slots={daily} closed={closed} names={names} meId={me.id} canEditOthers={others} people={people} />
         )}
       </section>
 
       <section className="mt-6">
-        <SpecialTasks period={period} tasks={specialTasks} names={names} meId={me.id} canEditOthers={others} />
+        <SpecialTasks period={period} tasks={specialTasks} names={names} meId={me.id} canEditOthers={others} people={people} />
       </section>
 
       <div className="mt-8 space-y-8">
