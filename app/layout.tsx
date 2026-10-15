@@ -37,6 +37,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <Link href="/uebersicht" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
                 <LinkPending>Übersicht</LinkPending>
               </Link>
+              {me && (
+                <Link href="/kalender" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
+                  <LinkPending>Kalender</LinkPending>
+                </Link>
+              )}
               <Link href="/einstellungen" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
                 <LinkPending>Einstellungen</LinkPending>
               </Link>

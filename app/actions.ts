@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { query } from '@/lib/db'
 import {
-  addLog, AVAILABILITY_LABELS, createYear, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
+  addLog, AVAILABILITY_LABELS, calendarToken, createYear, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
   type AvailabilityStatus, type DutyKind,
 } from '@/lib/data'
 import { formatDate, PERIOD_KINDS, todayIso, WEEKDAYS, weekday, wsLecture, yearLabel, isLecture } from '@/lib/dates'
@@ -45,6 +45,13 @@ export async function login(_: string | null, fd: FormData) {
   if (!expected || str(fd, 'password') !== expected) return 'Falsches Passwort.'
   ;(await cookies()).set(kind === 'admin' ? ADMIN_COOKIE : ACCESS_COOKIE, await sha256(expected), COOKIE_OPTS)
   redirect(next.startsWith('/') ? next : '/')
+}
+
+/** Kalender-Abo: neue geheime Adresse; die alte funktioniert danach nicht mehr. */
+export async function renewCalendarToken() {
+  const me = await requireStaff()
+  await calendarToken(me.id, true)
+  revalidatePath('/kalender')
 }
 
 // --- Planungsmodus -------------------------------------------------------------

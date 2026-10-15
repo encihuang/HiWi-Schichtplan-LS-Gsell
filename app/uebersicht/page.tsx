@@ -1,49 +1,10 @@
 import { MailLink } from '@/components/mail-link'
-import { query } from '@/lib/db'
-import {
-  lectureRoster, listClosedDays, listDaily, listDuties, listExceptions, listExtras, listSpecialTasks, listStaff,
-  type Period, type RosterEntry,
-} from '@/lib/data'
-import { addDays, formatDate, isLecture, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
+import { listSpecialTasks, listStaff, loadDays, type RosterEntry } from '@/lib/data'
+import { addDays, formatDate, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
 
 export const dynamic = 'force-dynamic'
 
 const WEEKS = 4
-
-type DayInfo = { date: string; closed?: string; period?: Period; entries: RosterEntry[] }
-
-/** Wer hat an welchem Tag Dienst – über Zeiträume hinweg. */
-async function loadDays(from: string, to: string): Promise<DayInfo[]> {
-  const periods = await query<Period>('select * from periods where start_date <= $2 and end_date >= $1 order by start_date', [
-    from, to,
-  ])
-  const staff = await listStaff()
-  const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
-  const data = await Promise.all(
-    periods.map(async (p) => {
-      const closed = await listClosedDays(p.year_id)
-      if (isLecture(p.kind)) {
-        const [duties, exceptions, extras] = await Promise.all([listDuties(p.id), listExceptions(p.id), listExtras(p.id)])
-        return { p, closed, roster: (d: string) => lectureRoster(d, duties, exceptions, extras, names) }
-      }
-      const slots = await listDaily(p.id)
-      return {
-        p,
-        closed,
-        roster: (d: string): RosterEntry[] =>
-          slots.filter((s) => s.date === d).map((s) => ({ staff_id: s.staff_id, label: 'Dienst' })),
-      }
-    }),
-  )
-  const days: DayInfo[] = []
-  for (let d = from; d <= to; d = addDays(d, 1)) {
-    if (weekday(d) > 5) continue
-    const x = data.find((x) => x.p.start_date <= d && x.p.end_date >= d)
-    const closed = x?.closed.find((c) => c.date === d)?.name
-    days.push({ date: d, period: x?.p, closed, entries: x && !closed ? x.roster(d) : [] })
-  }
-  return days
-}
 
 function People({ entries, byId, large = false }: {
   entries: RosterEntry[]

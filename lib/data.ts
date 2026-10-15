@@ -1,8 +1,9 @@
 import 'server-only'
+import { randomBytes } from 'node:crypto'
 import { query } from './db'
 import {
-  academicYearPeriods, christmasBreakBetween, eachDay, holidaysBetween, isWeekend, PERIOD_KINDS, todayIso, weekday,
-  type PeriodKind,
+  academicYearPeriods, addDays, christmasBreakBetween, eachDay, holidaysBetween, isLecture, isWeekend, PERIOD_KINDS, todayIso,
+  weekday, type PeriodKind,
 } from './dates'
 
 export type Staff = {
@@ -307,4 +308,69 @@ export function lectureRoster(
   }
   for (const x of extras.filter((y) => y.date === d)) out.push({ staff_id: x.staff_id, label: 'zusätzlich' })
   return out
+}
+
+export type DayInfo = { date: string; closed?: string; period?: Period; entries: RosterEntry[]; lectures: Lecture[] }
+
+/** Wer hat an welchem Werktag Dienst (inkl. Vorlesungsbetreuung) – über Zeiträume hinweg. */
+export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
+  const periods = await query<Period>('select * from periods where start_date <= $2 and end_date >= $1 order by start_date', [
+    from, to,
+  ])
+  const staff = await listStaff()
+  const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
+  const data = await Promise.all(
+    periods.map(async (p) => {
+      const closed = await listClosedDays(p.year_id)
+      if (isLecture(p.kind)) {
+        const [duties, exceptions, extras, lectures] = await Promise.all([
+          listDuties(p.id), listExceptions(p.id), listExtras(p.id), listLectures(p.id),
+        ])
+        return {
+          p,
+          closed,
+          roster: (d: string) => lectureRoster(d, duties, exceptions, extras, names),
+          lectures: (d: string) => lectures.filter((l) => l.weekday === weekday(d)),
+        }
+      }
+      const slots = await listDaily(p.id)
+      return {
+        p,
+        closed,
+        roster: (d: string): RosterEntry[] =>
+          slots.filter((s) => s.date === d).map((s) => ({ staff_id: s.staff_id, label: 'Dienst' })),
+        lectures: (): Lecture[] => [],
+      }
+    }),
+  )
+  const days: DayInfo[] = []
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    if (weekday(d) > 5) continue
+    const x = data.find((x) => x.p.start_date <= d && x.p.end_date >= d)
+    const closed = x?.closed.find((c) => c.date === d)?.name
+    const open = x && !closed
+    days.push({ date: d, period: x?.p, closed, entries: open ? x.roster(d) : [], lectures: open ? x.lectures(d) : [] })
+  }
+  return days
+}
+
+// --- Kalender-Abo ---------------------------------------------------------------
+
+/** Geheimer Schlüssel für die Kalender-Abo-Adresse einer Person; wird bei Bedarf angelegt. */
+export async function calendarToken(staffId: number, renew = false) {
+  const fresh = randomBytes(18).toString('base64url')
+  const [r] = await query<{ calendar_token: string }>(
+    `update staff set calendar_token = ${renew ? '$2' : 'coalesce(calendar_token, $2)'} where id = $1 returning calendar_token`,
+    [staffId, fresh],
+  )
+  return r?.calendar_token ?? null
+}
+
+export async function staffByCalendarToken(token: string) {
+  if (!/^[\w-]{16,}$/.test(token)) return undefined
+  const [s] = await query<Staff>(
+    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email from staff where calendar_token = $1',
+    [token],
+  )
+  return s
 }

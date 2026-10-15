@@ -89,6 +89,9 @@ export default async function PlanPage({
           <a href={`/export/${period.id}/xlsx`} className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
             Excel herunterladen
           </a>
+          <Link href="/kalender" className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+            Kalender abonnieren
+          </Link>
         </div>
       </div>
 

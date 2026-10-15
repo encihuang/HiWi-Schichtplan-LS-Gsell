@@ -122,6 +122,8 @@ const ONCE: [string, string][] = [
 
 const MIGRATIONS = [
   `alter table staff add column if not exists email text not null default ''`,
+  `alter table staff add column if not exists calendar_token text`,
+  `create unique index if not exists staff_calendar_token on staff (calendar_token)`,
   // Ansprechpartner/Support (weekly_slots) -> Dienstarten: allein = Alle Aufgaben, zu zweit = Geteilt
   `do $$ begin
     if to_regclass('weekly_slots') is not null then

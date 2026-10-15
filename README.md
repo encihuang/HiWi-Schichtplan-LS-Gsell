@@ -11,6 +11,8 @@ Wintersemester, vorlesungsfreier Zeit WiSe, Sommersemester und vorlesungsfreier 
 - Berechnung Soll/Ist nach Wochenstunden (wie im bisherigen Excel-Plan)
 - „Zuletzt geändert von … am …“ und Änderungsverlauf
 - PDF- und Excel-Export mit „Stand: …“
+- Kalender-Abo (Seite „Kalender“): eigene Dienste oder der ganze Plan als iCal-Feed für iPhone, Outlook, Google usw.;
+  pro Person eine geheime Adresse unter `/ical/…` (ohne `APP_PASSWORD` erreichbar, jederzeit zurücksetzbar)
 - Planungsmodus (Schalter auf der Planseite): Verfügbarkeiten und Schichten aller Hilfskräfte bearbeiten,
   Schichten direkt einer Person zuweisen, Ausfälle und Vertretungen eintragen
 - Einstellungen: Hilfskräfte (Name, h/Woche, Beginn/Ende, aktiv), Zeiträume, Feier-/Schließtage.
