@@ -2,8 +2,8 @@ import Link from 'next/link'
 import { MailLink } from '@/components/mail-link'
 import { query } from '@/lib/db'
 import {
-  ABSENCE_LABELS, isHiwi, listAbsences, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence, type Appointment,
-  type Period, type RosterEntry,
+  ABSENCE_LABELS, listAbsences, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence, type Appointment,
+  type Period, type Role, type RosterEntry, type Staff,
 } from '@/lib/data'
 import { absenceRange } from '@/lib/absence-mail'
 import { addDays, formatDate, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
@@ -72,6 +72,50 @@ function People({ entries, byId, large = false }: {
   )
 }
 
+// Reihenfolge der Gruppen im Abschnitt „Lehrstuhl“
+const GROUPS: { title: string; roles: Role[] }[] = [
+  { title: 'Lehrstuhlinhaberin', roles: ['prof'] },
+  { title: 'Sekretariat', roles: ['sekretariat'] },
+  { title: 'Wissenschaftliche Mitarbeiter:innen', roles: ['wimi', 'rat'] },
+  { title: 'Studentische Hilfskräfte', roles: ['hiwi'] },
+]
+
+function MailAll({ emails, label = 'E-Mail an alle' }: { emails: string[]; label?: string }) {
+  const to = emails.filter(Boolean)
+  if (!to.length) return null
+  return (
+    <a href={`mailto:${to.join(',')}`} className="text-sm text-lmu underline hover:text-lmu-darker">
+      {label}
+    </a>
+  )
+}
+
+function StaffGroup({ title, people }: { title: string; people: Staff[] }) {
+  if (!people.length) return null
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="font-semibold text-neutral-700">{title}</h3>
+        <MailAll emails={people.map((s) => s.email)} />
+      </div>
+      <ul className="mt-1.5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {people.map((s) => (
+          <li key={s.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
+            <span className="min-w-0">
+              <span className="font-semibold">{s.name}</span>
+              <span className="block truncate text-xs text-neutral-500">
+                {s.role === 'rat' && `${ROLE_LABELS.rat} · `}
+                {s.email || 'keine E-Mail hinterlegt'}
+              </span>
+            </span>
+            <MailLink email={s.email} name={s.name} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 const mondayOf = (d: string) => addDays(d, 1 - weekday(d))
 
 export default async function Overview({ searchParams }: { searchParams: Promise<{ wochen?: string; alle?: string }> }) {
@@ -92,13 +136,10 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   ])
   const expanded = all || weeks > WEEKS
   const more = `/uebersicht?wochen=${weeks + 4}`
-  const staff = everyone.filter(isHiwi)
-  const team = everyone.filter((s) => !isHiwi(s))
   const byId = new Map(everyone.map((s) => [s.id, s]))
   // auch inaktive Personen anzeigen, falls noch eingeteilt
   for (const s of await listStaff()) if (!byId.has(s.id)) byId.set(s.id, s)
   const todayInfo = days.find((d) => d.date === today)
-  const allEmails = staff.map((s) => s.email).filter(Boolean)
   // Sonderaufgaben des laufenden Zeitraums
   const currentPeriod = todayInfo?.period ?? days.find((d) => d.period)?.period
   const tasks = currentPeriod ? await listSpecialTasks(currentPeriod.id) : []
@@ -248,43 +289,16 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         )}
       </section>
 
-      {team.length > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold text-lmu-darker">Lehrstuhlteam</h2>
-          <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {team.map((s) => (
-              <li key={s.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
-                <span>
-                  <span className="font-semibold">{s.name}</span>
-                  <span className="block text-xs text-neutral-500">{ROLE_LABELS[s.role]}</span>
-                </span>
-                <MailLink email={s.email} name={s.name} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       <section>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold text-lmu-darker">Alle Hilfskräfte</h2>
-          {allEmails.length > 0 && (
-            <a href={`mailto:${allEmails.join(',')}`} className="text-sm text-lmu underline hover:text-lmu-darker">
-              E-Mail an alle
-            </a>
-          )}
+          <h2 className="text-lg font-semibold text-lmu-darker">Lehrstuhl</h2>
+          <MailAll emails={everyone.map((s) => s.email)} label="E-Mail an den gesamten Lehrstuhl" />
         </div>
-        <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {staff.map((s) => (
-            <li key={s.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
-              <span>
-                <span className="font-semibold">{s.name}</span>
-                <span className="block text-xs text-neutral-500">{s.email || 'keine E-Mail hinterlegt'}</span>
-              </span>
-              <MailLink email={s.email} name={s.name} />
-            </li>
+        <div className="mt-2 space-y-5">
+          {GROUPS.map((g) => (
+            <StaffGroup key={g.title} title={g.title} people={everyone.filter((s) => g.roles.includes(s.role))} />
           ))}
-        </ul>
+        </div>
       </section>
     </div>
   )
