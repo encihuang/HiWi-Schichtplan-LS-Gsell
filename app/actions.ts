@@ -1,9 +1,11 @@
 'use server'
 
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { query } from '@/lib/db'
+import { runDigest } from '@/lib/mail'
+import { encrypt, setSetting } from '@/lib/settings'
 import {
   ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, calendarToken, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
   type AbsenceKind, type AvailabilityStatus, type DutyKind, type Role,
@@ -585,6 +587,44 @@ export async function deleteStaff(fd: FormData) {
   await query('delete from staff where id = $1', [s.id])
   await addLog(null, await actorName(), `${s.name} gelöscht`)
   revalidatePath('/', 'layout')
+}
+
+// --- E-Mail-Versand (Einstellungen) ---------------------------------------------------
+
+/** SMTP-Zugang und Zeitplan speichern. Leeres Passwortfeld = bisheriges Passwort behalten. */
+export async function saveMailSettings(fd: FormData) {
+  await requireAdmin()
+  const port = Math.round(num(fd, 'port'))
+  await setSetting('smtp.host', str(fd, 'host'))
+  await setSetting('smtp.port', String(port > 0 && port < 65536 ? port : 587))
+  await setSetting('smtp.security', str(fd, 'security') === 'ssl' ? 'ssl' : 'starttls')
+  await setSetting('smtp.user', str(fd, 'user'))
+  await setSetting('smtp.from', str(fd, 'from'))
+  const password = String(fd.get('password') ?? '')
+  if (fd.get('clearPassword') === 'on') await setSetting('smtp.password', null)
+  else if (password) await setSetting('smtp.password', encrypt(password))
+
+  const recipients = str(fd, 'recipients').split(/[\s,;]+/).filter((x) => EMAIL.test(x))
+  const frequency = str(fd, 'frequency')
+  await setSetting('digest.recipients', recipients.join(', '))
+  await setSetting('digest.frequency', ['daily', 'weekly'].includes(frequency) ? frequency : 'off')
+  await setSetting('digest.weekday', String(Math.min(5, Math.max(1, num(fd, 'weekday') || 1))))
+  await setSetting('digest.weeks', String(Math.min(26, Math.max(1, num(fd, 'weeks') || 4))))
+  for (const k of ['absences', 'duties', 'appointments', 'onlyNew']) {
+    await setSetting(`digest.${k}`, fd.get(k) === 'on' ? '1' : '0')
+  }
+  await addLog(null, await actorName(), 'E-Mail-Einstellungen geändert')
+  revalidatePath('/einstellungen')
+}
+
+/** Zusammenfassung sofort an die eingetragenen Empfänger schicken (zum Testen). */
+export async function sendTestDigest() {
+  await requireAdmin()
+  const h = await headers()
+  const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000'
+  const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')
+  await runDigest(`${proto}://${host}`, true)
+  revalidatePath('/einstellungen')
 }
 
 export async function saveYearDates(fd: FormData) {

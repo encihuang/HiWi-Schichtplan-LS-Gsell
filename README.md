@@ -9,6 +9,9 @@ Sekretariat** (Abwesenheiten). Hilfskräfte: **Wer bist du?** → **Studienjahr*
 
 - Abwesenheiten und Urlaube (für alle): eintragen, danach per E-Mail (mailto) ans Sekretariat melden;
   sichtbar in der Übersicht und im Kalender-Abo
+- E-Mail-Zusammenfassung (Einstellungen → E-Mail-Versand): Empfänger, werktäglich oder wöchentlich, Versand über
+  das eigene LMU-Konto per SMTP; Vercel Cron ruft täglich um 5:00 UTC `/api/cron/digest` auf
+- Übersicht: „Mehr anzeigen“ (+4 Wochen) und „Gesamten Zeitraum anzeigen“
 - Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin);
   in den Einstellungen lassen sich mehrere Personen auf einmal importieren (`Name; E-Mail; Bereich` je Zeile)
 
@@ -43,5 +46,7 @@ Ohne `DATABASE_URL` läuft lokal eine eingebettete Datenbank in `.data/` (nicht 
 | `DATABASE_URL` | Neon-Postgres (Produktion). Tabellen werden beim ersten Zugriff angelegt. |
 | `APP_PASSWORD` | optional: gemeinsames Passwort für die ganze App |
 | `ADMIN_PASSWORD` | optional: Passwort für die Einstellungen und den Planungsmodus |
+| `SECRET_KEY` | empfohlen: Schlüssel, mit dem das SMTP-Passwort verschlüsselt gespeichert wird (sonst aus `ADMIN_PASSWORD` abgeleitet). Bei Änderung muss das Passwort neu eingegeben werden. |
+| `CRON_SECRET` | empfohlen: schützt `/api/cron/digest` (Vercel sendet den Header automatisch) |
 
 Lokale `.env.local` liegt in Dev-Lokal (siehe globale Anweisungen), nicht im Repo.

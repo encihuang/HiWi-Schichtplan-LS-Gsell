@@ -117,6 +117,10 @@ create table if not exists absences (
   check (from_date <= to_date)
 );
 create index if not exists absences_dates on absences (to_date, from_date);
+create table if not exists settings (
+  key text primary key,
+  value text not null
+);
 create table if not exists changelog (
   id serial primary key,
   period_id int references periods(id) on delete cascade,

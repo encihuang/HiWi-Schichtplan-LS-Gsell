@@ -1,7 +1,9 @@
+import Link from 'next/link'
 import { MailLink } from '@/components/mail-link'
+import { query } from '@/lib/db'
 import {
   ABSENCE_LABELS, isHiwi, listAbsences, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence, type Appointment,
-  type RosterEntry,
+  type Period, type RosterEntry,
 } from '@/lib/data'
 import { absenceRange } from '@/lib/absence-mail'
 import { addDays, formatDate, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
@@ -9,6 +11,7 @@ import { addDays, formatDate, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday
 export const dynamic = 'force-dynamic'
 
 const WEEKS = 4
+const MAX_WEEKS = 60
 
 function Appointments({ items, large = false }: { items: Appointment[]; large?: boolean }) {
   if (!items.length) return null
@@ -69,13 +72,26 @@ function People({ entries, byId, large = false }: {
   )
 }
 
-export default async function Overview() {
+const mondayOf = (d: string) => addDays(d, 1 - weekday(d))
+
+export default async function Overview({ searchParams }: { searchParams: Promise<{ wochen?: string; alle?: string }> }) {
+  const params = await searchParams
   const today = todayIso()
-  const monday = addDays(today, 1 - weekday(today))
-  const end = addDays(monday, WEEKS * 7 - 1)
+  // „Gesamter Zeitraum“: laufender Zeitraum (sonst der nächste) von Anfang bis Ende
+  const [period] = await query<Period>(
+    'select * from periods where end_date >= $1 order by start_date limit 1',
+    [today],
+  )
+  const all = params.alle === '1' && !!period
+  const weeks = Math.min(MAX_WEEKS, Math.max(WEEKS, Math.round(Number(params.wochen)) || WEEKS))
+  const monday = all ? mondayOf(period.start_date < today ? period.start_date : today) : mondayOf(today)
+  const end = all ? period.end_date : addDays(monday, weeks * 7 - 1)
+  const absencesUntil = all ? end : addDays(today, Math.max(8 * 7, weeks * 7))
   const [days, everyone, absences] = await Promise.all([
-    loadDays(monday, end), listStaff(true), listAbsences(today, addDays(today, 7 * 8)),
+    loadDays(monday, end), listStaff(true), listAbsences(today, absencesUntil),
   ])
+  const expanded = all || weeks > WEEKS
+  const more = `/uebersicht?wochen=${weeks + 4}`
   const staff = everyone.filter(isHiwi)
   const team = everyone.filter((s) => !isHiwi(s))
   const byId = new Map(everyone.map((s) => [s.id, s]))
@@ -120,7 +136,9 @@ export default async function Overview() {
       </section>
 
       <section>
-        <h2 className="text-lg font-semibold text-lmu-darker">Die nächsten {WEEKS} Wochen</h2>
+        <h2 className="text-lg font-semibold text-lmu-darker">
+          {all ? `${PERIOD_LABELS[period.kind]} (${formatDate(period.start_date)} – ${formatDate(period.end_date)})` : `Die nächsten ${weeks} Wochen`}
+        </h2>
         <div className="mt-2">
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-5">
             {WEEKDAYS.map((d) => (
@@ -153,6 +171,23 @@ export default async function Overview() {
             })}
           </div>
         </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-sm">
+          {!all && weeks < MAX_WEEKS && (
+            <Link href={more} scroll={false} className="rounded border border-lmu bg-white px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+              Mehr anzeigen (+4 Wochen)
+            </Link>
+          )}
+          {!all && period && (
+            <Link href="/uebersicht?alle=1" scroll={false} className="rounded border border-lmu bg-white px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+              Gesamten Zeitraum anzeigen ({PERIOD_LABELS[period.kind]} bis {formatDate(period.end_date)})
+            </Link>
+          )}
+          {expanded && (
+            <Link href="/uebersicht" scroll={false} className="rounded px-3 py-1.5 text-neutral-600 hover:bg-white">
+              Weniger anzeigen
+            </Link>
+          )}
+        </div>
       </section>
 
       {tasks.length > 0 && (
@@ -184,7 +219,7 @@ export default async function Overview() {
 
       <section>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold text-lmu-darker">Abwesenheiten und Urlaube (nächste 8 Wochen)</h2>
+          <h2 className="text-lg font-semibold text-lmu-darker">Abwesenheiten und Urlaube (bis {formatDate(absencesUntil)})</h2>
           <a href="/abwesenheiten" className="text-sm text-lmu underline hover:text-lmu-darker">Abwesenheit eintragen</a>
         </div>
         {absences.length === 0 ? (

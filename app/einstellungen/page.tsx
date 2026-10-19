@@ -1,6 +1,9 @@
 import { redirect } from 'next/navigation'
 import { listClosedDays, listLog, listPeriods, listStaff, listYears, ROLE_LABELS, type Role } from '@/lib/data'
 import { isAdmin } from '@/lib/session'
+import { loadMailConfig } from '@/lib/mail'
+import { canStoreSecrets } from '@/lib/settings'
+import { MailSettings } from '@/components/mail-settings'
 import { formatDate, formatDateTime, LMU_VORLESUNGSZEITEN_URL, PERIOD_LABELS, yearLabel } from '@/lib/dates'
 import {
   addClosedDay, addYear, deleteStaff, deleteYear, importStaff, removeClosedDay, saveStaff, saveYearDates,
@@ -38,7 +41,7 @@ const btnGhost = 'rounded px-3 py-1.5 text-sm text-red-700 hover:bg-red-50'
 
 export default async function Settings() {
   if (!(await isAdmin())) redirect('/login?kind=admin&next=/einstellungen')
-  const [staff, years, log] = await Promise.all([listStaff(), listYears(), listLog(null, 15)])
+  const [staff, years, log, mail] = await Promise.all([listStaff(), listYears(), listLog(null, 15), loadMailConfig()])
   const yearData = await Promise.all(
     years.map(async (y) => ({ y, periods: await listPeriods(y.id), closed: await listClosedDays(y.id) })),
   )
@@ -143,6 +146,13 @@ export default async function Settings() {
           </div>
         </form>
       </details>
+
+      <MailSettings
+        smtp={mail.smtp}
+        digest={mail.digest}
+        canStoreSecrets={canStoreSecrets()}
+        passwordReadable={mail.password !== null}
+      />
 
       {/* Studienjahre */}
       <section>

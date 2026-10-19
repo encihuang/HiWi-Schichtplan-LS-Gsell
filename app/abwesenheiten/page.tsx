@@ -6,6 +6,7 @@ import {
 } from '@/lib/data'
 import { addDays, todayIso } from '@/lib/dates'
 import { currentStaff, isAdmin } from '@/lib/session'
+import { loadMailConfig } from '@/lib/mail'
 import { addAbsence, deleteAbsence } from '../actions'
 
 export const dynamic = 'force-dynamic'
@@ -27,14 +28,16 @@ export default async function AbsencesPage({ searchParams }: { searchParams: Pro
   }
   const { neu } = await searchParams
   const today = todayIso()
-  const [admin, sec, staff, mine, team, fresh] = await Promise.all([
+  const [admin, sec, staff, mine, team, fresh, mailCfg] = await Promise.all([
     isAdmin(),
     secretary(),
     listStaff(),
     listAbsences(addDays(today, -30), '9999-12-31', me.id),
     listAbsences(today, addDays(today, 7 * 12)),
     neu ? getAbsence(Number(neu)) : Promise.resolve(undefined),
+    loadMailConfig(),
   ])
+  const digestOn = mailCfg.digest.frequency !== 'off' && mailCfg.digest.absences && mailCfg.digest.recipients.length > 0
   const byId = new Map(staff.map((s) => [s.id, s]))
   const name = (id: number) => byId.get(id)?.name ?? '?'
   const upcoming = mine.filter((a) => a.to_date >= today)
@@ -50,6 +53,12 @@ export default async function AbsencesPage({ searchParams }: { searchParams: Pro
           Urlaub, Krankheit oder Dienstreise eintragen. Alle Abwesenheiten sind in der{' '}
           <Link href="/uebersicht" className="text-lmu underline">Übersicht</Link> für den Lehrstuhl sichtbar.
         </p>
+      </div>
+
+      <div className="rounded-lg border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="note">
+        <strong>Bitte rechtzeitig melden:</strong> Abwesenheiten und Urlaube müssen rechtzeitig vorher an{' '}
+        {sec ? <strong>{sec.name}</strong> : 'das Sekretariat'} geschickt werden. Nach dem Eintragen kannst du direkt eine E-Mail an {sec ? sec.name : 'das Sekretariat'} öffnen.
+        {digestOn && ' Zusätzlich erhält das Sekretariat regelmäßig eine Zusammenfassung per E-Mail.'}
       </div>
 
       {justAdded && (
