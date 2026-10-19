@@ -44,7 +44,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               {(!me || !isHiwi(me)) && (
                 <Link
                   href={me ? '/abwesenheiten' : '/?bereich=team'}
-                  title="Wiss. Mitarbeiter:innen, Akad. Räte und Sekretariat: Abwesenheiten und Urlaube"
+                  title="Wiss. Mitarbeiter:innen und Akad. Räte: Abwesenheiten und Urlaube"
                   className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium"
                 >
                   <LinkPending>Wiss. Mit.</LinkPending>
