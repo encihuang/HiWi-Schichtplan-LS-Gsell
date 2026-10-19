@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { SubmitButton } from '@/components/slot-button'
+import { OpenMailDraft } from '@/components/open-mail-draft'
 import { absenceMailto, absenceRange } from '@/lib/absence-mail'
 import {
   ABSENCE_LABELS, getAbsence, listAbsences, listStaff, ROLE_LABELS, secretary, type Absence,
@@ -58,7 +59,7 @@ export default async function AbsencesPage({ searchParams }: { searchParams: Pro
 
       <div className="rounded-lg border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="note">
         <strong>Bitte rechtzeitig melden:</strong> Abwesenheiten und Urlaube müssen rechtzeitig vorher an{' '}
-        {sec ? <strong>{sec.name}</strong> : 'das Sekretariat'} geschickt werden. Nach dem Eintragen kannst du direkt eine E-Mail an {sec ? sec.name : 'das Sekretariat'} öffnen.
+        {sec ? <strong>{sec.name}</strong> : 'das Sekretariat'} geschickt werden. Nach dem Eintragen öffnet sich dafür automatisch ein E-Mail-Entwurf an {sec ? sec.name : 'das Sekretariat'}.
         {digestOn && ' Zusätzlich erhält das Sekretariat regelmäßig eine Zusammenfassung per E-Mail.'}
       </div>
 
@@ -70,7 +71,8 @@ export default async function AbsencesPage({ searchParams }: { searchParams: Pro
           </div>
           {sec ? (
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-              <span className="text-neutral-700">Möchtest du {sec.name} (Sekretariat) per E-Mail informieren?</span>
+              <OpenMailDraft href={mail([justAdded])!} id={String(justAdded.id)} />
+              <span className="text-neutral-700">Der E-Mail-Entwurf an {sec.name} (Sekretariat) hat sich nicht geöffnet?</span>
               <a href={mail([justAdded])!} className={mailBtn}>E-Mail an {sec.name}</a>
               {justAdded.staff_id === me.id && upcoming.length > 1 && (
                 <a href={mail(upcoming)!} className="text-lmu underline hover:text-lmu-darker">
