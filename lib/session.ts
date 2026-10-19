@@ -51,7 +51,7 @@ export async function canEditOthers() {
  */
 export async function requireShiftActor() {
   const s = await requireStaff()
-  if (s.role !== 'hiwi' && !(await canEditOthers())) {
+  if (s.role === 'wimi' || (s.role !== 'hiwi' && !(await canEditOthers()))) {
     throw new Error('Schichten übernehmen nur studentische Hilfskräfte – zum Bearbeiten den Planungsmodus einschalten.')
   }
   return s

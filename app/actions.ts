@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { query } from '@/lib/db'
 import { after } from 'next/server'
-import { DEFAULT_TEXTS, runDigest, sendUpdate } from '@/lib/mail'
+import { DEFAULT_ABSENCE_TEXTS, DEFAULT_MAIL, loadMails, runMails, saveMails, sendUpdate } from '@/lib/mail'
 import { encrypt, setSetting } from '@/lib/settings'
 import {
   ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, calendarToken, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
@@ -401,7 +401,10 @@ export async function addAbsence(fd: FormData) {
   await addLog(null, me.name, `${ABSENCE_LABELS[kind as AbsenceKind]} ${range} eingetragen${forWho}`)
   if (to >= todayIso()) await notifyChange('absences', `${person.name}: ${ABSENCE_LABELS[kind as AbsenceKind]} ${range} eingetragen`)
   revalidatePath('/', 'layout')
-  redirect(`/abwesenheiten?neu=${a.id}`)
+  // nur Pfade dieser App
+  const back = str(fd, 'back')
+  const target = back.startsWith('/') && !back.startsWith('//') ? back : '/abwesenheiten'
+  redirect(`${target}${target.includes('?') ? '&' : '?'}neu=${a.id}#abwesenheiten`)
 }
 
 export async function deleteAbsence(fd: FormData) {
@@ -426,9 +429,16 @@ async function periodIdOn(date: string) {
   return p?.id ?? null
 }
 
+/** Termine bearbeiten: im Planungsmodus oder mit dem Passwort für die Einstellungen */
+async function appointmentEditor() {
+  const me = await currentStaff()
+  if (await isAdmin()) return { name: me?.name ?? 'Verwaltung' }
+  return me && (await canEditOthers()) ? me : null
+}
+
 export async function addAppointment(fd: FormData) {
-  const me = await requireStaff()
-  if (!(await canEditOthers())) return
+  const me = await appointmentEditor()
+  if (!me) return
   const date = isoOrNull(str(fd, 'date'))
   const title = str(fd, 'title')
   if (!date || !title) return
@@ -441,8 +451,8 @@ export async function addAppointment(fd: FormData) {
 }
 
 export async function deleteAppointment(fd: FormData) {
-  const me = await requireStaff()
-  if (!(await canEditOthers())) return
+  const me = await appointmentEditor()
+  if (!me) return
   const [a] = await query<{ date: string; title: string }>('delete from appointments where id = $1 returning date, title', [
     num(fd, 'appointment'),
   ])
@@ -547,8 +557,8 @@ export async function deleteStaff(fd: FormData) {
 
 // --- E-Mail-Versand (Einstellungen) ---------------------------------------------------
 
-/** SMTP-Zugang und Zeitplan speichern. Leeres Passwortfeld = bisheriges Passwort behalten. */
-export async function saveMailSettings(fd: FormData) {
+/** SMTP-Zugang speichern. Leeres Passwortfeld = bisheriges Passwort behalten. */
+export async function saveSmtp(fd: FormData) {
   await requireAdmin()
   const port = Math.round(num(fd, 'port'))
   await setSetting('smtp.host', str(fd, 'host'))
@@ -559,23 +569,67 @@ export async function saveMailSettings(fd: FormData) {
   const password = String(fd.get('password') ?? '')
   if (fd.get('clearPassword') === 'on') await setSetting('smtp.password', null)
   else if (password) await setSetting('smtp.password', encrypt(password))
-
-  const recipients = str(fd, 'recipients').split(/[\s,;]+/).filter((x) => EMAIL.test(x))
-  const frequency = str(fd, 'frequency')
-  await setSetting('digest.recipients', recipients.join(', '))
-  await setSetting('digest.frequency', ['daily', 'weekly'].includes(frequency) ? frequency : 'off')
-  await setSetting('digest.weekday', String(Math.min(5, Math.max(1, num(fd, 'weekday') || 1))))
-  await setSetting('digest.weeks', String(Math.min(26, Math.max(1, num(fd, 'weeks') || 4))))
-  for (const k of Object.keys(DEFAULT_TEXTS) as (keyof typeof DEFAULT_TEXTS)[]) {
-    const v = String(fd.get(`text_${k}`) ?? '').replace(/\r\n/g, '\n').trim()
-    // leerer Betreff = Standard; übrige Texte dürfen leer sein
-    await setSetting(`text.${k}`, v || (k === 'subject' || k === 'updateSubject' ? DEFAULT_TEXTS[k] : ''))
-  }
-  for (const k of ['absences', 'duties', 'appointments', 'onlyNew', 'updates']) {
-    await setSetting(`digest.${k}`, fd.get(k) === 'on' ? '1' : '0')
-  }
-  await addLog(null, await actorName(), 'E-Mail-Einstellungen geändert')
+  await addLog(null, await actorName(), 'Absender-Konto für E-Mails geändert')
   revalidatePath('/einstellungen')
+}
+
+const text = (fd: FormData, k: string) => String(fd.get(k) ?? '').replace(/\r\n/g, '\n').trim()
+
+/** Eine automatische E-Mail speichern (Empfänger, Zeitplan, Texte) */
+export async function saveMail(fd: FormData) {
+  await requireAdmin()
+  const id = str(fd, 'id')
+  const mails = await loadMails()
+  const i = mails.findIndex((m) => m.id === id)
+  if (i < 0) return
+  const frequency = str(fd, 'frequency')
+  mails[i] = {
+    id,
+    name: str(fd, 'name') || DEFAULT_MAIL.name,
+    staffIds: fd.getAll('staff').map(Number).filter(Boolean),
+    extra: str(fd, 'extra').split(/[\s,;]+/).filter((x) => EMAIL.test(x)),
+    frequency: frequency === 'daily' || frequency === 'weekly' ? frequency : 'off',
+    weekday: num(fd, 'weekday'),
+    weeks: num(fd, 'weeks'),
+    onlyNew: fd.get('onlyNew') === 'on',
+    updates: fd.get('updates') === 'on',
+    subject: text(fd, 'subject') || DEFAULT_MAIL.subject,
+    updateSubject: text(fd, 'updateSubject') || DEFAULT_MAIL.updateSubject,
+    body: text(fd, 'body'),
+  }
+  await saveMails(mails)
+  await addLog(null, await actorName(), `Automatische E-Mail „${mails[i].name}“ geändert`)
+  revalidatePath('/', 'layout')
+}
+
+/** Neue automatische E-Mail (zunächst ausgeschaltet) */
+export async function addMail() {
+  await requireAdmin()
+  const mails = await loadMails()
+  const id = `m${Date.now().toString(36)}`
+  mails.push({ ...DEFAULT_MAIL, id, name: mails.length ? 'Neue E-Mail' : DEFAULT_MAIL.name })
+  await saveMails(mails)
+  await addLog(null, await actorName(), 'Automatische E-Mail angelegt')
+  revalidatePath('/einstellungen')
+  redirect(`/einstellungen#mail-${id}`)
+}
+
+export async function deleteMail(fd: FormData) {
+  await requireAdmin()
+  const mails = await loadMails()
+  const gone = mails.find((m) => m.id === str(fd, 'id'))
+  if (!gone) return
+  await saveMails(mails.filter((m) => m !== gone))
+  await addLog(null, await actorName(), `Automatische E-Mail „${gone.name}“ gelöscht`)
+  revalidatePath('/', 'layout')
+}
+
+/** Text der Abwesenheitsmeldung ans Sekretariat */
+export async function saveAbsenceTexts(fd: FormData) {
+  await requireAdmin()
+  for (const k of Object.keys(DEFAULT_ABSENCE_TEXTS)) await setSetting(`text.${k}`, text(fd, k))
+  await addLog(null, await actorName(), 'Text der Abwesenheitsmeldung geändert')
+  revalidatePath('/', 'layout')
 }
 
 async function origin() {
@@ -591,10 +645,10 @@ async function notifyChange(topic: 'absences' | 'appointments', change: string) 
   after(() => sendUpdate(o, topic, change))
 }
 
-/** Zusammenfassung sofort an die eingetragenen Empfänger schicken (zum Testen). */
-export async function sendTestDigest() {
+/** Eine automatische E-Mail sofort an ihre Empfänger schicken (zum Testen). */
+export async function sendTestMail(fd: FormData) {
   await requireAdmin()
-  await runDigest(await origin(), true)
+  await runMails(await origin(), str(fd, 'id'))
   revalidatePath('/einstellungen')
 }
 

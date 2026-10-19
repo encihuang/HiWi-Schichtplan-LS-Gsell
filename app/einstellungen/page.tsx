@@ -1,12 +1,15 @@
 import { redirect } from 'next/navigation'
-import { listClosedDays, listLog, listPeriods, listStaff, listYears, ROLE_LABELS, type Role } from '@/lib/data'
+import {
+  isHiwi, listAppointments, listClosedDays, listLog, listPeriods, listStaff, listYears, ROLE_LABELS, type Role,
+} from '@/lib/data'
+import { ToggleAll } from '@/components/toggle-all'
 import { isAdmin } from '@/lib/session'
-import { loadMailConfig } from '@/lib/mail'
+import { loadAbsenceTexts, loadMailConfig, loadMails, loadMailStates } from '@/lib/mail'
 import { canStoreSecrets } from '@/lib/settings'
 import { MailSettings } from '@/components/mail-settings'
 import { formatDate, formatDateTime, LMU_VORLESUNGSZEITEN_URL, PERIOD_LABELS, yearLabel } from '@/lib/dates'
 import {
-  addClosedDay, addYear, deleteStaff, deleteYear, removeClosedDay, saveStaff, saveYearDates,
+  addAppointment, addClosedDay, addYear, deleteAppointment, deleteStaff, deleteYear, removeClosedDay, saveStaff, saveYearDates,
 } from '../actions'
 
 export const dynamic = 'force-dynamic'
@@ -15,13 +18,13 @@ const input = 'w-full min-w-0 rounded border border-neutral-300 px-2 py-1.5 text
 const btn = 'rounded bg-lmu px-3 py-1.5 text-sm font-medium text-white hover:bg-lmu-dark'
 const cols = 'lg:grid-cols-[1.2fr_1.6fr_1.1fr_0.5fr_1fr_1fr_0.4fr_auto]'
 
-/** Eingabefeld mit Beschriftung, die nur auf schmalen Bildschirmen sichtbar ist (sonst Tabellenkopf) */
+/** Eingabefeld mit Beschriftung */
 function Field({ label, wide, className = '', children }: {
   label: string; wide?: boolean; className?: string; children: React.ReactNode
 }) {
   return (
     <label className={`grid min-w-0 gap-0.5 ${wide ? 'col-span-2 lg:col-span-1' : ''} ${className}`}>
-      <span className="text-xs text-neutral-500 lg:hidden">{label}</span>
+      <span className="text-xs text-neutral-500">{label}</span>
       {children}
     </label>
   )
@@ -41,9 +44,16 @@ const btnGhost = 'rounded px-3 py-1.5 text-sm text-red-700 hover:bg-red-50'
 
 export default async function Settings() {
   if (!(await isAdmin())) redirect('/login?kind=admin&next=/einstellungen')
-  const [staff, years, log, mail] = await Promise.all([listStaff(), listYears(), listLog(null, 15), loadMailConfig()])
+  const [staff, years, log, mail, mails, mailStates, absenceTexts] = await Promise.all([
+    listStaff(), listYears(), listLog(null, 15), loadMailConfig(), loadMails(), loadMailStates(), loadAbsenceTexts(),
+  ])
   const yearData = await Promise.all(
-    years.map(async (y) => ({ y, periods: await listPeriods(y.id), closed: await listClosedDays(y.id) })),
+    years.map(async (y) => {
+      const [periods, closed] = await Promise.all([listPeriods(y.id), listClosedDays(y.id)])
+      const from = periods[0]?.start_date ?? `${y.start_year}-10-01`
+      const to = periods.at(-1)?.end_date ?? `${y.start_year + 1}-09-30`
+      return { y, periods, closed, from, to, appointments: await listAppointments(from, to) }
+    }),
   )
 
   return (
@@ -58,45 +68,53 @@ export default async function Settings() {
           Hilfskräfte; ihre Wochenstunden bestimmen den Soll-Anteil, Beginn und Ende (optional) begrenzen die Werktage.
           Abwesenheitsmeldungen gehen an die Person im Bereich „Sekretariat“.
         </p>
-        <div className="mt-3 rounded-lg bg-white shadow-sm">
+        <ToggleAll group="staff" className="mt-3" />
+        <div className="mt-2 rounded-lg bg-white shadow-sm">
           <div className="divide-y divide-neutral-100">
-            <div className={`hidden ${cols} gap-2 rounded-t-lg bg-lmu px-3 py-2 text-sm font-semibold text-white lg:grid`}>
-              <span>Name</span><span>E-Mail</span><span>Bereich</span><span>h/Woche</span><span>Beginn</span><span>Ende</span><span>Aktiv</span><span className="w-28" />
-            </div>
             {staff.map((s) => (
-              <div key={s.id} className="flex flex-col gap-2 px-3 py-3 lg:flex-row lg:items-center lg:py-2">
-                <form action={saveStaff} className={`grid flex-1 grid-cols-2 gap-2 ${cols} lg:items-center`}>
-                  <input type="hidden" name="id" value={s.id} />
-                  <Field label="Name" wide>
-                    <input name="name" defaultValue={s.name} required className={input} />
-                  </Field>
-                  <Field label="E-Mail" wide>
-                    <input type="email" name="email" defaultValue={s.email} placeholder="name@campus.lmu.de" className={input} />
-                  </Field>
-                  <Field label="Bereich" wide>
-                    <RoleSelect value={s.role} />
-                  </Field>
-                  <Field label="h/Woche">
-                    <input name="hours" defaultValue={s.hours_per_week} inputMode="decimal" className={input} />
-                  </Field>
-                  <Field label="Aktiv" className="lg:order-6">
-                    <input type="checkbox" name="active" defaultChecked={s.active} className="h-5 w-5 accent-lmu" />
-                  </Field>
-                  <Field label="Beginn">
-                    <input type="date" name="start" defaultValue={s.start_date ?? ''} className={input} />
-                  </Field>
-                  <Field label="Ende">
-                    <input type="date" name="end" defaultValue={s.end_date ?? ''} className={input} />
-                  </Field>
-                  <button className={`${btn} col-span-2 lg:order-7 lg:col-span-1`}>Speichern</button>
-                </form>
-                <form action={deleteStaff} className="text-right">
-                  <input type="hidden" name="id" value={s.id} />
-                  <button className={btnGhost} title="Löscht auch alle Schichten dieser Person">Löschen</button>
-                </form>
-              </div>
+              <details key={s.id} data-group="staff" className="group">
+                <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2.5 hover:bg-neutral-50 [&::-webkit-details-marker]:hidden">
+                  <span className="text-neutral-400 transition-transform group-open:rotate-90">▸</span>
+                  <span className={`font-medium ${s.active ? '' : 'text-neutral-400'}`}>{s.name}</span>
+                  <span className="text-sm text-neutral-500">{ROLE_LABELS[s.role]}</span>
+                  {isHiwi(s) && <span className="text-sm text-neutral-500">{s.hours_per_week} h/Woche</span>}
+                  {s.email && <span className="hidden text-sm text-neutral-500 sm:inline">{s.email}</span>}
+                  {!s.active && <span className="rounded bg-neutral-100 px-1.5 text-xs text-neutral-600">inaktiv</span>}
+                </summary>
+                <div className="flex flex-col gap-2 border-t border-neutral-100 bg-neutral-50/60 px-3 py-3 lg:flex-row lg:items-end">
+                  <form action={saveStaff} className={`grid flex-1 grid-cols-2 gap-2 ${cols} lg:items-end`}>
+                    <input type="hidden" name="id" value={s.id} />
+                    <Field label="Name" wide>
+                      <input name="name" defaultValue={s.name} required className={input} />
+                    </Field>
+                    <Field label="E-Mail" wide>
+                      <input type="email" name="email" defaultValue={s.email} placeholder="name@campus.lmu.de" className={input} />
+                    </Field>
+                    <Field label="Bereich" wide>
+                      <RoleSelect value={s.role} />
+                    </Field>
+                    <Field label="h/Woche">
+                      <input name="hours" defaultValue={s.hours_per_week} inputMode="decimal" className={input} />
+                    </Field>
+                    <Field label="Aktiv" className="lg:order-6">
+                      <input type="checkbox" name="active" defaultChecked={s.active} className="h-5 w-5 accent-lmu lg:my-1.5" />
+                    </Field>
+                    <Field label="Beginn">
+                      <input type="date" name="start" defaultValue={s.start_date ?? ''} className={input} />
+                    </Field>
+                    <Field label="Ende">
+                      <input type="date" name="end" defaultValue={s.end_date ?? ''} className={input} />
+                    </Field>
+                    <button className={`${btn} col-span-2 lg:order-7 lg:col-span-1`}>Speichern</button>
+                  </form>
+                  <form action={deleteStaff} className="text-right">
+                    <input type="hidden" name="id" value={s.id} />
+                    <button className={btnGhost} title="Löscht auch alle Schichten dieser Person">Löschen</button>
+                  </form>
+                </div>
+              </details>
             ))}
-            <form action={saveStaff} className={`grid grid-cols-2 gap-2 rounded-b-lg bg-lmu-lighter px-3 py-3 ${cols} lg:items-center lg:py-2`}>
+            <form action={saveStaff} className={`grid grid-cols-2 gap-2 rounded-b-lg bg-lmu-lighter px-3 py-3 ${cols} lg:items-end`}>
               <Field label="Name" wide>
                 <input name="name" placeholder="Neue Person" required className={input} />
               </Field>
@@ -124,8 +142,10 @@ export default async function Settings() {
 
       <MailSettings
         smtp={mail.smtp}
-        digest={mail.digest}
-        texts={mail.texts}
+        mails={mails}
+        states={mailStates}
+        staff={staff}
+        absenceTexts={absenceTexts}
         canStoreSecrets={canStoreSecrets()}
         passwordReadable={mail.password !== null}
       />
@@ -149,7 +169,7 @@ export default async function Settings() {
         </div>
 
         <div className="mt-4 space-y-4">
-          {yearData.reverse().map(({ y, periods, closed }) => (
+          {yearData.reverse().map(({ y, periods, closed, from, to, appointments }) => (
             <details key={y.id} className="rounded-lg bg-white shadow-sm" open={yearData.length === 1}>
               <summary className="cursor-pointer px-4 py-3 font-semibold text-lmu-darker">
                 Studienjahr {yearLabel(y.start_year)}
@@ -186,6 +206,36 @@ export default async function Settings() {
                     <input type="hidden" name="year" value={y.id} />
                     <input type="date" name="date" required className={input} />
                     <input name="name" placeholder="z. B. Betriebsausflug" className={`${input} flex-1`} />
+                    <button className={btn}>Eintragen</button>
+                  </form>
+                </div>
+                <div className="lg:col-span-2">
+                  <h3 className="text-sm font-semibold">Termine im Kalender (z. B. Klausuren – der Dienst findet statt)</h3>
+                  <p className="text-xs text-neutral-500">Erscheinen im Schichtplan, in der Übersicht und im Kalender-Abo.</p>
+                  {appointments.length === 0 ? (
+                    <p className="mt-2 text-sm text-neutral-500">Noch keine Termine.</p>
+                  ) : (
+                    <ul className="mt-2 max-h-72 overflow-y-auto divide-y divide-neutral-100 text-sm">
+                      {appointments.map((a) => (
+                        <li key={a.id} className="flex items-center justify-between gap-3 py-1">
+                          <span className="min-w-0">
+                            <span className="tabular-nums">{formatDate(a.date)}</span>
+                            {a.time && <span className="text-neutral-500"> {a.time}</span>} – <strong className="font-medium">{a.title}</strong>
+                            {a.note && <span className="text-neutral-500"> ({a.note})</span>}
+                          </span>
+                          <form action={deleteAppointment}>
+                            <input type="hidden" name="appointment" value={a.id} />
+                            <button className="px-2 text-red-700 hover:underline">entfernen</button>
+                          </form>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <form action={addAppointment} className="mt-2 grid gap-2 sm:grid-cols-[auto_8rem_1fr_1fr_auto]">
+                    <input type="date" name="date" required min={from} max={to} className={input} aria-label="Datum" />
+                    <input name="time" placeholder="Uhrzeit (optional)" className={input} aria-label="Uhrzeit" />
+                    <input name="title" required placeholder="z. B. Klausur Zivilrecht II" className={input} aria-label="Termin" />
+                    <input name="note" placeholder="Notiz (optional)" className={input} aria-label="Notiz" />
                     <button className={btn}>Eintragen</button>
                   </form>
                   <form action={deleteYear} className="mt-6 text-right">
