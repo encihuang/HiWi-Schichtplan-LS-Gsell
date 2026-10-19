@@ -1,7 +1,7 @@
 import { addMail, deleteMail, saveAbsenceTexts, saveMail, saveSmtp, sendTestMail } from '@/app/actions'
 import { ROLE_LABELS, ROLES, type Staff } from '@/lib/data'
 import type { AbsenceTexts, MailState, SmtpConfig } from '@/lib/mail'
-import { FREQUENCY_LABELS, TOPIC_LABELS, type AutoMail } from '@/lib/mail-shared'
+import { FREQUENCY_LABELS, TOPIC_LABELS, type AutoMail, type Topic } from '@/lib/mail-shared'
 import { WEEKDAYS } from '@/lib/dates'
 import { absenceBody } from '@/lib/absence-mail'
 import { MailTemplate } from './mail-template'
@@ -41,10 +41,12 @@ function Recipients({ mail, staff }: { mail: AutoMail; staff: Staff[] }) {
   )
 }
 
+const TOPIC_SHORT: Record<Topic, string> = { absences: 'Abwesenheiten', appointments: 'Termine', shifts: 'Schichtplan' }
+
 function schedule(m: AutoMail) {
   if (m.kind === 'change') {
     if (!m.topics.length) return 'aus'
-    return `bei Änderungen: ${m.topics.map((t) => (t === 'absences' ? 'Abwesenheiten' : 'Termine')).join(', ')}`
+    return `bei Änderungen: ${m.topics.map((t) => TOPIC_SHORT[t]).join(', ')}`
   }
   if (m.frequency === 'off') return 'aus'
   return m.frequency === 'weekly' ? `wöchentlich, ${WEEKDAYS[m.weekday - 1]}` : FREQUENCY_LABELS.daily
@@ -95,7 +97,7 @@ function MailCard({ mail, state, staff }: { mail: AutoMail; state?: MailState; s
                     {l}
                   </label>
                 ))}
-                <span className={hint}>Gilt für Einträge, die heute oder später liegen. Die Änderung steht in {'{aenderung}'}.</span>
+                <span className={hint}>Abwesenheiten und Termine zählen, wenn sie heute oder später liegen. Die Änderung steht in {'{aenderung}'}; den aktuellen Schichtplan zeigt {'{dienste}'}.</span>
               </div>
               <label className={label}>
                 Vorschau (Wochen)

@@ -3,7 +3,7 @@
 export type Frequency = 'off' | 'daily' | 'weekly'
 /** regelmäßig nach Zeitplan oder sofort bei Änderungen */
 export type MailKind = 'schedule' | 'change'
-export type Topic = 'absences' | 'appointments'
+export type Topic = 'absences' | 'appointments' | 'shifts'
 
 /** Automatisch verschickte E-Mail (z. B. wöchentliche Übersicht fürs Sekretariat) */
 export type AutoMail = {
@@ -35,6 +35,7 @@ export const FREQUENCY_LABELS: Record<Frequency, string> = {
 export const TOPIC_LABELS: Record<Topic, string> = {
   absences: 'Abwesenheit eingetragen oder gelöscht',
   appointments: 'Termin eingetragen oder gelöscht',
+  shifts: 'Schichtplan geändert (Dienste, Vertretungen, Sonderaufgaben)',
 }
 
 /** Platzhalter, die durch einen einzelnen Wert ersetzt werden */
@@ -89,7 +90,7 @@ export const DEFAULT_MAILS: Record<MailKind, Omit<AutoMail, 'id'>> = {
     ...base(),
     kind: 'change',
     name: 'Benachrichtigung bei Änderungen',
-    topics: ['absences', 'appointments'],
+    topics: ['absences', 'appointments', 'shifts'],
     subject: '{titel}: {aenderung}',
     body: [
       'Guten Tag,',
@@ -97,6 +98,7 @@ export const DEFAULT_MAILS: Record<MailKind, Omit<AutoMail, 'id'>> = {
       'Zur Einordnung der aktuelle Stand:',
       '{abwesenheiten}',
       '{termine}',
+      '{dienste}',
       'Den jeweils aktuellen Stand finden Sie hier:\n{link}',
       SIGNATURE,
     ].join('\n\n'),
