@@ -95,6 +95,16 @@ create table if not exists daily_slots (
   updated_at timestamptz not null default now(),
   primary key (period_id, date)
 );
+create table if not exists appointments (
+  id serial primary key,
+  date text not null,
+  time text not null default '',
+  title text not null,
+  note text not null default '',
+  created_by text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists appointments_date on appointments (date);
 create table if not exists changelog (
   id serial primary key,
   period_id int references periods(id) on delete cascade,

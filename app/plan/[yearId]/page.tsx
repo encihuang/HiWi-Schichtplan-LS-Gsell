@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import {
-  calcDaily, calcWeekly, getYear, listAvailability, listClosedDays, listDaily, listDuties, listLectures, listLog,
+  calcDaily, calcWeekly, getYear, listAppointments, listAvailability, listClosedDays, listDaily, listDuties, listLectures, listLog,
   listExceptions, listExtras, listPeriods, listSpecialTasks, listStaff,
 } from '@/lib/data'
 import { canEditOthers, currentStaff } from '@/lib/session'
@@ -9,6 +9,7 @@ import { formatDate, formatDateTime, isLecture, PERIOD_LABELS, todayIso, yearLab
 import { WeeklyPlan } from '@/components/weekly-plan'
 import { DateExceptions } from '@/components/date-exceptions'
 import { SpecialTasks } from '@/components/special-tasks'
+import { Appointments } from '@/components/appointments'
 import { DailyPlan } from '@/components/daily-plan'
 import { CalcTable } from '@/components/calc-table'
 import { LinkPending } from '@/components/link-pending'
@@ -42,13 +43,14 @@ export default async function PlanPage({
 
   const lecture = isLecture(period.kind)
   const none = Promise.resolve([])
-  const [staff, closed, log, others, specialTasks, weekly, availability, lectures, exceptions, extras, daily] =
+  const [staff, closed, log, others, specialTasks, appointments, weekly, availability, lectures, exceptions, extras, daily] =
     await Promise.all([
       listStaff(),
       listClosedDays(year.id),
       listLog(period.id, 10),
       canEditOthers(),
       listSpecialTasks(period.id),
+      listAppointments(period.start_date, period.end_date),
       lecture ? listDuties(period.id) : none,
       lecture ? listAvailability(period.id) : none,
       lecture ? listLectures(period.id) : none,
@@ -162,6 +164,10 @@ export default async function PlanPage({
         ) : (
           <DailyPlan period={period} slots={daily} closed={closed} names={names} meId={me.id} canEditOthers={others} people={people} />
         )}
+      </section>
+
+      <section className="mt-6 empty:hidden">
+        <Appointments period={period} appointments={appointments} planning={others} />
       </section>
 
       <section className="mt-6">

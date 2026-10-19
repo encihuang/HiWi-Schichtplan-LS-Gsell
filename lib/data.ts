@@ -38,6 +38,8 @@ export type Lecture = {
   updated_at: string | null
 }
 export type DailySlot = { date: string; staff_id: number; updated_by: string; updated_at: string }
+/** Termin für alle Hilfskräfte (z. B. Teamsitzung), im Planungsmodus angelegt */
+export type Appointment = { id: number; date: string; time: string; title: string; note: string; created_by: string }
 export type LogEntry = { actor: string; message: string; at: string }
 
 export const DUTY_LABELS: Record<DutyKind, string> = {
@@ -124,6 +126,12 @@ export const listDaily = (periodId: number) =>
   query<DailySlot>(
     'select date, staff_id, updated_by, updated_at from daily_slots where period_id = $1 order by date',
     [periodId],
+  )
+
+export const listAppointments = (from: string, to: string) =>
+  query<Appointment>(
+    'select id, date, time, title, note, created_by from appointments where date between $1 and $2 order by date, time, id',
+    [from, to],
   )
 
 export const listLog = (periodId: number | null, limit = 8) =>
@@ -310,14 +318,21 @@ export function lectureRoster(
   return out
 }
 
-export type DayInfo = { date: string; closed?: string; period?: Period; entries: RosterEntry[]; lectures: Lecture[] }
+export type DayInfo = {
+  date: string
+  closed?: string
+  period?: Period
+  entries: RosterEntry[]
+  lectures: Lecture[]
+  appointments: Appointment[]
+}
 
 /** Wer hat an welchem Werktag Dienst (inkl. Vorlesungsbetreuung) – über Zeiträume hinweg. */
 export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
   const periods = await query<Period>('select * from periods where start_date <= $2 and end_date >= $1 order by start_date', [
     from, to,
   ])
-  const staff = await listStaff()
+  const [staff, appointments] = await Promise.all([listStaff(), listAppointments(from, to)])
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const data = await Promise.all(
     periods.map(async (p) => {
@@ -349,7 +364,14 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
     const x = data.find((x) => x.p.start_date <= d && x.p.end_date >= d)
     const closed = x?.closed.find((c) => c.date === d)?.name
     const open = x && !closed
-    days.push({ date: d, period: x?.p, closed, entries: open ? x.roster(d) : [], lectures: open ? x.lectures(d) : [] })
+    days.push({
+      date: d,
+      period: x?.p,
+      closed,
+      entries: open ? x.roster(d) : [],
+      lectures: open ? x.lectures(d) : [],
+      appointments: appointments.filter((a) => a.date === d),
+    })
   }
   return days
 }

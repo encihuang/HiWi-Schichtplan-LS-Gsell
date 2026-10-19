@@ -1,4 +1,4 @@
-import { listStaff, loadDays, staffByCalendarToken } from '@/lib/data'
+import { listAppointments, listStaff, loadDays, staffByCalendarToken } from '@/lib/data'
 import { addDays, todayIso } from '@/lib/dates'
 import { query } from '@/lib/db'
 import { buildCalendar } from '@/lib/ical'
@@ -17,10 +17,10 @@ export async function GET(request: Request, ctx: RouteContext<'/ical/[token]/[fi
   const from = addDays(todayIso(), -90)
   const [last] = await query<{ end_date: string | null }>('select max(end_date) as end_date from periods')
   const to = last?.end_date && last.end_date > from ? last.end_date : from
-  const [days, staff] = await Promise.all([loadDays(from, to), listStaff()])
+  const [days, appointments, staff] = await Promise.all([loadDays(from, to), listAppointments(from, '9999-12-31'), listStaff()])
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const origin = new URL(request.url).origin
-  const body = buildCalendar(days, names, all ? null : me.id, origin)
+  const body = buildCalendar(days, appointments, names, all ? null : me.id, origin)
 
   return new Response(body, {
     headers: {

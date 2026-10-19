@@ -377,6 +377,37 @@ export async function deleteSpecialTask(fd: FormData) {
   revalidatePath('/', 'layout')
 }
 
+// --- Termine für alle (Planungsmodus) -------------------------------------------
+
+/** Zeitraum, in dem ein Datum liegt (für den Änderungsverlauf), sonst null */
+async function periodIdOn(date: string) {
+  const [p] = await query<{ id: number }>('select id from periods where start_date <= $1 and end_date >= $1 limit 1', [date])
+  return p?.id ?? null
+}
+
+export async function addAppointment(fd: FormData) {
+  const me = await requireStaff()
+  if (!(await canEditOthers())) return
+  const date = isoOrNull(str(fd, 'date'))
+  const title = str(fd, 'title')
+  if (!date || !title) return
+  await query('insert into appointments (date, time, title, note, created_by) values ($1, $2, $3, $4, $5)', [
+    date, str(fd, 'time'), title, str(fd, 'note'), me.name,
+  ])
+  await addLog(await periodIdOn(date), me.name, `Termin „${title}“ am ${formatDate(date)} für alle angelegt`)
+  revalidatePath('/', 'layout')
+}
+
+export async function deleteAppointment(fd: FormData) {
+  const me = await requireStaff()
+  if (!(await canEditOthers())) return
+  const [a] = await query<{ date: string; title: string }>('delete from appointments where id = $1 returning date, title', [
+    num(fd, 'appointment'),
+  ])
+  if (a) await addLog(await periodIdOn(a.date), me.name, `Termin „${a.title}“ am ${formatDate(a.date)} gelöscht`)
+  revalidatePath('/', 'layout')
+}
+
 /** Sonderaufgabe übernehmen bzw. abgeben */
 export async function toggleSpecialTask(fd: FormData) {
   const me = await requireStaff()

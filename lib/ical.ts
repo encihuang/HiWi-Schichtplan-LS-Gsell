@@ -2,7 +2,7 @@
 
 import { APP_TITLE } from './brand'
 import { addDays, PERIOD_LABELS } from './dates'
-import type { DayInfo, Lecture, RosterEntry } from './data'
+import type { Appointment, DayInfo, Lecture, RosterEntry } from './data'
 
 const CRLF = '\r\n'
 const TZ = 'Europe/Berlin'
@@ -79,23 +79,31 @@ function vevent(e: Event, stamp: string) {
 
 const dutyText = (e: RosterEntry, names: Record<number, string>) => `${names[e.staff_id] ?? '?'} (${e.label})`
 
-function lectureEvent(l: Lecture, date: string, summary: string, description: string): Event {
-  const time = parseTimeRange(l.time) ?? undefined
+function timedEvent(uid: string, date: string, timeText: string, summary: string, description: string): Event {
+  const time = parseTimeRange(timeText) ?? undefined
   return {
-    uid: `vl-${l.id}-${date}`,
+    uid,
     date,
-    summary: time || !l.time ? summary : `${summary} (${l.time})`,
-    description: [l.time && `Uhrzeit: ${l.time}`, description].filter(Boolean).join('\n'),
+    summary: time || !timeText ? summary : `${summary} (${timeText})`,
+    description: [timeText && `Uhrzeit: ${timeText}`, description].filter(Boolean).join('\n'),
     time,
   }
 }
 
+const lectureEvent = (l: Lecture, date: string, summary: string, description: string) =>
+  timedEvent(`vl-${l.id}-${date}`, date, l.time, summary, description)
+
 /**
  * Termine für eine Person (staffId) oder den ganzen Plan (staffId = null).
- * Ganztägig: Dienste; mit Uhrzeit, falls angegeben: Vorlesungsbetreuung.
+ * Ganztägig: Dienste; mit Uhrzeit, falls angegeben: Vorlesungsbetreuung und Termine für alle.
  */
-export function buildCalendar(days: DayInfo[], names: Record<number, string>, staffId: number | null, url: string) {
-  const events: Event[] = []
+export function buildCalendar(
+  days: DayInfo[], appointments: Appointment[], names: Record<number, string>, staffId: number | null, url: string,
+) {
+  // Termine für alle stehen in beiden Feeds, auch an Wochenenden und Schließtagen.
+  const events: Event[] = appointments.map((a) =>
+    timedEvent(`termin-${a.id}`, a.date, a.time, a.title, [a.note, 'Termin für alle Hilfskräfte'].filter(Boolean).join('\n')),
+  )
   for (const d of days) {
     if (!d.period || d.closed) continue
     const period = PERIOD_LABELS[d.period.kind]

@@ -1,10 +1,29 @@
 import { MailLink } from '@/components/mail-link'
-import { listSpecialTasks, listStaff, loadDays, type RosterEntry } from '@/lib/data'
+import { listSpecialTasks, listStaff, loadDays, type Appointment, type RosterEntry } from '@/lib/data'
 import { addDays, formatDate, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
 
 export const dynamic = 'force-dynamic'
 
 const WEEKS = 4
+
+function Appointments({ items, large = false }: { items: Appointment[]; large?: boolean }) {
+  if (!items.length) return null
+  return (
+    <ul className={`${large ? 'mt-3 space-y-1' : 'mt-1.5 space-y-1'}`}>
+      {items.map((a) => (
+        <li
+          key={a.id}
+          title={a.note || undefined}
+          className={`rounded bg-amber-100 px-1.5 py-0.5 text-amber-950 ${large ? 'text-sm' : 'text-[11px] leading-tight'}`}
+        >
+          <span className="font-semibold">{a.title}</span>
+          {a.time && <span> · {a.time}</span>}
+          {large && a.note && <span className="block text-xs text-amber-900/80">{a.note}</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 function People({ entries, byId, large = false }: {
   entries: RosterEntry[]
@@ -69,6 +88,7 @@ export default async function Overview() {
           ) : (
             <People entries={todayInfo.entries} byId={byId} large />
           )}
+          <Appointments items={todayInfo?.appointments ?? []} large />
         </div>
       </section>
 
@@ -99,6 +119,7 @@ export default async function Overview() {
                   ) : (
                     <People entries={d.entries} byId={byId} />
                   )}
+                  <Appointments items={d.appointments} />
                 </div>
               )
             })}
