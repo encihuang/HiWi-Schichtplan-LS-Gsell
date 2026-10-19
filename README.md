@@ -15,7 +15,7 @@ Wintersemester, vorlesungsfreier Zeit WiSe, Sommersemester und vorlesungsfreier 
   pro Person eine geheime Adresse unter `/ical/…` (ohne `APP_PASSWORD` erreichbar, jederzeit zurücksetzbar)
 - Planungsmodus (Schalter auf der Planseite): Verfügbarkeiten und Schichten aller Hilfskräfte bearbeiten,
   Schichten direkt einer Person zuweisen, Ausfälle und Vertretungen eintragen, Termine für alle anlegen
-  (z. B. Teamsitzung; erscheinen im Plan, in der Übersicht und im Kalender-Abo)
+  (z. B. Klausurtermine, Teamsitzung; erscheinen im Plan, in der Übersicht und im Kalender-Abo)
 - Einstellungen: Hilfskräfte (Name, h/Woche, Beginn/Ende, aktiv), Zeiträume, Feier-/Schließtage.
   Neue Studienjahre werden nach den [LMU-Vorlesungszeiten](https://www.lmu.de/de/workspace-fuer-studierende/1x1-des-studiums/vorlesungszeiten/) angelegt.
 
