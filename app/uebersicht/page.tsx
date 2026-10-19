@@ -2,11 +2,13 @@ import Link from 'next/link'
 import { MailLink } from '@/components/mail-link'
 import { query } from '@/lib/db'
 import {
-  ABSENCE_LABELS, listAbsences, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence, type Appointment,
+  ABSENCE_LABELS, canSeePlan, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
+  type Appointment,
   type Period, type Role, type RosterEntry, type Staff,
 } from '@/lib/data'
 import { absenceRange } from '@/lib/absence-mail'
 import { addDays, formatDate, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
+import { currentStaff } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
@@ -118,6 +120,59 @@ function StaffGroup({ title, people }: { title: string; people: Staff[] }) {
 
 const mondayOf = (d: string) => addDays(d, 1 - weekday(d))
 
+const exportLink = 'rounded border border-lmu bg-white px-2.5 py-1 text-sm text-lmu-darker hover:bg-lmu-light'
+
+/** PDF und Excel je Zeitraum des Studienjahrs – wie im Schichtplan nur mit Anmeldung (nicht für wiss. Mitarbeiter:innen) */
+function Downloads({ periods, allowed, loggedIn, today }: {
+  periods: Period[]
+  allowed: boolean
+  loggedIn: boolean
+  today: string
+}) {
+  if (!periods.length) return null
+  return (
+    <section className="no-print">
+      <h2 className="text-lg font-semibold text-lmu-darker">Schichtplan herunterladen</h2>
+      {!allowed ? (
+        <p className="mt-1 text-sm text-neutral-600">
+          {loggedIn ? (
+            'Der Schichtplan steht für deinen Bereich nicht zum Herunterladen bereit.'
+          ) : (
+            <>
+              Zum Herunterladen bitte auf der <Link href="/" className="text-lmu underline">Startseite</Link> Bereich und
+              Namen wählen.
+            </>
+          )}
+        </p>
+      ) : (
+        <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+          {periods.map((p) => {
+            const current = p.start_date <= today && p.end_date >= today
+            return (
+              <li
+                key={p.id}
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 shadow-sm ${current ? 'ring-2 ring-lmu' : ''}`}
+              >
+                <span className="min-w-0">
+                  <span className="font-semibold">{PERIOD_LABELS[p.kind]}</span>
+                  {current && <span className="ml-2 rounded bg-lmu px-1.5 text-xs text-white">aktuell</span>}
+                  <span className="block text-xs tabular-nums text-neutral-500">
+                    {formatDate(p.start_date)} – {formatDate(p.end_date)}
+                  </span>
+                </span>
+                <span className="flex gap-2">
+                  <a href={`/export/${p.id}/pdf`} className={exportLink}>PDF</a>
+                  <a href={`/export/${p.id}/xlsx`} className={exportLink}>Excel</a>
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 export default async function Overview({ searchParams }: { searchParams: Promise<{ wochen?: string; alle?: string }> }) {
   const params = await searchParams
   const today = todayIso()
@@ -131,8 +186,9 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const monday = all ? mondayOf(period.start_date < today ? period.start_date : today) : mondayOf(today)
   const end = all ? period.end_date : addDays(monday, weeks * 7 - 1)
   const absencesUntil = all ? end : addDays(today, Math.max(8 * 7, weeks * 7))
-  const [days, everyone, absences] = await Promise.all([
-    loadDays(monday, end), listStaff(true), listAbsences(today, absencesUntil),
+  const [days, everyone, absences, me, yearPeriods] = await Promise.all([
+    loadDays(monday, end), listStaff(true), listAbsences(today, absencesUntil), currentStaff(),
+    period ? listPeriods(period.year_id) : Promise.resolve([]),
   ])
   const expanded = all || weeks > WEEKS
   const more = `/uebersicht?wochen=${weeks + 4}`
@@ -288,6 +344,8 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           </ul>
         )}
       </section>
+
+      <Downloads periods={yearPeriods} allowed={!!me && canSeePlan(me)} loggedIn={!!me} today={today} />
 
       <section>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
