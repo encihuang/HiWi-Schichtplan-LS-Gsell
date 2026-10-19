@@ -177,15 +177,15 @@ async function send(to: string[], subject: string, text: string, html: string) {
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
-type Block = { title: string; lines: string[] }
+/** Liste in der E-Mail; html (optional, schon maskiert) ersetzt die Zeilen in der HTML-Fassung, z. B. mit Links */
+type Block = { title: string; lines: string[]; html?: string[] }
 
 const uses = (m: AutoMail, ...keys: string[]) => keys.some((k) => `${m.subject}\n${m.body}`.includes(`{${k}}`))
 
-/** Enthält der Text Abwesenheiten bzw. Termine? */
+/** Enthält der Text Abwesenheiten, Termine bzw. Dienste? */
 function covers(m: AutoMail, topic: Topic) {
-  return topic === 'absences'
-    ? uses(m, 'abwesenheiten', 'neue_abwesenheiten', 'abwesend_heute', 'neu')
-    : uses(m, 'termine')
+  if (topic === 'absences') return uses(m, 'abwesenheiten', 'neue_abwesenheiten', 'abwesend_heute', 'neu')
+  return topic === 'appointments' ? uses(m, 'termine') : uses(m, 'dienste')
 }
 
 /** Ersetzt {platzhalter} in Text und HTML; Listen-Platzhalter werden zu Überschrift + Aufzählung. */
@@ -199,8 +199,8 @@ function render(template: string, values: Record<string, string>, blocks: Partia
     const block = key && key in BLOCK_PLACEHOLDERS ? blocks[key as BlockKey] : undefined
     if (key && block) {
       text += [block.title, ...block.lines.map((l) => `- ${l}`)].join('\n')
-      html += `<h3 style="color:#004d21;margin:14px 0 4px;font-size:15px">${esc(block.title)}</h3><ul style="margin:0 0 4px;padding-left:18px">${block.lines
-        .map((l) => `<li>${esc(l)}</li>`)
+      html += `<h3 style="color:#004d21;margin:14px 0 4px;font-size:15px">${esc(block.title)}</h3><ul style="margin:0 0 4px;padding-left:18px">${(block.html ?? block.lines.map(esc))
+        .map((l) => `<li>${l}</li>`)
         .join('')}</ul>`
     } else if (key && key in values) {
       text += values[key]
@@ -265,16 +265,29 @@ export async function buildMail(mail: AutoMail, state: MailState, origin: string
   }
   if (uses(mail, 'dienste')) {
     const days = await loadDays(today, addDays(today, 6))
-    blocks.dienste = {
-      title: 'Dienste der Hilfskräfte (nächste 7 Tage)',
-      lines: days.map((d) => {
-        const label = `${WEEKDAYS[weekday(d.date) - 1].slice(0, 2)}, ${formatDate(d.date)}`
-        if (d.closed) return `${label}: ${d.closed}`
-        if (!d.period) return `${label}: kein Zeitraum angelegt`
-        const people = d.entries.map((e) => `${byId.get(e.staff_id)?.name ?? '?'} (${e.label})`)
-        return `${label}: ${people.join(', ') || 'niemand eingeteilt'}`
-      }),
+    const lines: string[] = []
+    const html: string[] = []
+    for (const d of days) {
+      const label = `${WEEKDAYS[weekday(d.date) - 1].slice(0, 2)}, ${formatDate(d.date)}`
+      const other = d.closed ? d.closed : !d.period ? 'kein Zeitraum angelegt' : !d.entries.length ? 'niemand eingeteilt' : null
+      if (other) {
+        lines.push(`${label}: ${other}`)
+        html.push(esc(`${label}: ${other}`))
+        continue
+      }
+      lines.push(`${label}: ${d.entries.map((e) => `${byId.get(e.staff_id)?.name ?? '?'} (${e.label})`).join(', ')}`)
+      // Name als E-Mail-Link an die Person, Betreff mit dem Tag
+      const people = d.entries.map((e) => {
+        const s = byId.get(e.staff_id)
+        const name = esc(s?.name ?? '?')
+        const link = s?.email
+          ? `<a href="mailto:${esc(s.email)}?subject=${encodeURIComponent(`Dienst am ${label}`)}" style="color:#00883a">${name}</a>`
+          : name
+        return `${link} (${esc(e.label)})`
+      })
+      html.push(`${esc(label)}: ${people.join(', ')}`)
     }
+    blocks.dienste = { title: 'Dienste der Hilfskräfte (nächste 7 Tage)', lines, html }
   }
 
   const values: Record<string, string> = {

@@ -117,14 +117,14 @@ export async function setDuty(fd: FormData) {
       'delete from weekly_duties where period_id = $1 and staff_id = $2 and weekday = $3 returning 1',
       [period.id, who.target.id, day],
     )
-    if (done.length) await addLog(period.id, who.me.name, `${label}: Dienst entfernt${forWhom(who.me, who.target)}`)
+    if (done.length) await logShift(period.id, who.me.name, `${label}: Dienst entfernt${forWhom(who.me, who.target)}`)
   } else if (kind in DUTY_LABELS) {
     await query(
       `insert into weekly_duties (period_id, staff_id, weekday, kind, updated_by) values ($1, $2, $3, $4, $5)
        on conflict (period_id, staff_id, weekday) do update set kind = $4, updated_by = $5, updated_at = now()`,
       [period.id, who.target.id, day, kind, who.me.name],
     )
-    await addLog(
+    await logShift(
       period.id,
       who.me.name,
       `${label}: ${DUTY_LABELS[kind as DutyKind]}${forWhom(who.me, who.target)}`,
@@ -197,13 +197,13 @@ export async function toggleLecture(fd: FormData) {
     if (l.staff_id !== me.id && !(await canEditOthers())) return
     await query('update lectures set staff_id = null, updated_by = $2, updated_at = now() where id = $1', [l.id, me.name])
     const who = l.staff_id === me.id ? '' : ` (${(await getStaff(l.staff_id))?.name})`
-    await addLog(l.period_id, me.name, `${label} freigegeben${who}`)
+    await logShift(l.period_id, me.name, `${label} freigegeben${who}`)
   } else {
     const done = await query(
       'update lectures set staff_id = $2, updated_by = $3, updated_at = now() where id = $1 and staff_id is null returning 1',
       [l.id, me.id, me.name],
     )
-    if (done.length) await addLog(l.period_id, me.name, `${label} übernommen`)
+    if (done.length) await logShift(l.period_id, me.name, `${label} übernommen`)
   }
   revalidatePath('/plan', 'layout')
 }
@@ -229,7 +229,7 @@ export async function assignLecture(fd: FormData) {
   )
   if (l) {
     const label = `„${l.name}“ ${WEEKDAYS[l.weekday - 1]}`
-    await addLog(l.period_id, who.me.name, who.target ? `${label}: ${who.target.name} eingeteilt` : `${label} freigegeben`)
+    await logShift(l.period_id, who.me.name, who.target ? `${label}: ${who.target.name} eingeteilt` : `${label} freigegeben`)
   }
   revalidatePath('/plan', 'layout')
 }
@@ -245,7 +245,7 @@ export async function assignSpecialTask(fd: FormData) {
   )
   if (t) {
     const label = `Sonderaufgabe „${t.name}“`
-    await addLog(t.period_id, who.me.name, who.target ? `${label}: ${who.target.name} eingeteilt` : `${label} freigegeben`)
+    await logShift(t.period_id, who.me.name, who.target ? `${label}: ${who.target.name} eingeteilt` : `${label} freigegeben`)
   }
   revalidatePath('/', 'layout')
 }
@@ -262,10 +262,10 @@ export async function assignDaily(fd: FormData) {
        on conflict (period_id, date) do update set staff_id = $3, updated_by = $4, updated_at = now()`,
       [period.id, date, who.target.id, who.me.name],
     )
-    await addLog(period.id, who.me.name, `${formatDate(date)}: ${who.target.name} eingeteilt`)
+    await logShift(period.id, who.me.name, `${formatDate(date)}: ${who.target.name} eingeteilt`)
   } else {
     await query('delete from daily_slots where period_id = $1 and date = $2', [period.id, date])
-    await addLog(period.id, who.me.name, `${formatDate(date)} freigegeben`)
+    await logShift(period.id, who.me.name, `${formatDate(date)} freigegeben`)
   }
   revalidatePath('/plan', 'layout')
 }
@@ -303,22 +303,22 @@ export async function dateException(fd: FormData) {
          on conflict do nothing`,
         [period.id, date, me.id, self.name],
       )
-      await addLog(period.id, self.name, `${day}: kann nicht (Vertretung gesucht)${forWho}`)
+      await logShift(period.id, self.name, `${day}: kann nicht (Vertretung gesucht)${forWho}`)
     } else {
       await query('delete from date_exceptions where period_id = $1 and date = $2 and staff_id = $3', [period.id, date, me.id])
-      await addLog(period.id, self.name, `${day}: doch da${forWho}`)
+      await logShift(period.id, self.name, `${day}: doch da${forWho}`)
     }
   } else if (op === 'extra') {
     const done = await query(
       'insert into date_extras (period_id, date, staff_id, updated_by) values ($1, $2, $3, $4) on conflict do nothing returning 1',
       [period.id, date, me.id, self.name],
     )
-    if (done.length) await addLog(period.id, self.name, `${day}: zusätzlich Dienst${forWho}`)
+    if (done.length) await logShift(period.id, self.name, `${day}: zusätzlich Dienst${forWho}`)
   } else if (op === 'unextra') {
     const done = await query('delete from date_extras where period_id = $1 and date = $2 and staff_id = $3 returning 1', [
       period.id, date, me.id,
     ])
-    if (done.length) await addLog(period.id, self.name, `${day}: zusätzlicher Dienst entfernt${forWho}`)
+    if (done.length) await logShift(period.id, self.name, `${day}: zusätzlicher Dienst entfernt${forWho}`)
   } else if (op === 'cover' || op === 'uncover') {
     const absentId = num(fd, 'staff')
     const absent = await getStaff(absentId)
@@ -329,14 +329,14 @@ export async function dateException(fd: FormData) {
          where period_id = $1 and date = $2 and staff_id = $3 and substitute_id is null returning 1`,
         [period.id, date, absentId, me.id, self.name],
       )
-      if (done.length) await addLog(period.id, self.name, `${day}: Vertretung für ${absent.name} übernommen${forWho}`)
+      if (done.length) await logShift(period.id, self.name, `${day}: Vertretung für ${absent.name} übernommen${forWho}`)
     } else {
       const done = await query(
         `update date_exceptions set substitute_id = null, updated_by = $5, updated_at = now()
          where period_id = $1 and date = $2 and staff_id = $3 and substitute_id = $4 returning 1`,
         [period.id, date, absentId, me.id, self.name],
       )
-      if (done.length) await addLog(period.id, self.name, `${day}: Vertretung für ${absent.name} abgegeben${forWho}`)
+      if (done.length) await logShift(period.id, self.name, `${day}: Vertretung für ${absent.name} abgegeben${forWho}`)
     }
   } else if (op === 'substitute' && planning) {
     const absent = await getStaff(num(fd, 'staff'))
@@ -349,7 +349,7 @@ export async function dateException(fd: FormData) {
       [period.id, date, absent.id, sub?.id ?? null, self.name],
     )
     if (done.length) {
-      await addLog(period.id, self.name, sub ? `${day}: ${sub.name} vertritt ${absent.name}` : `${day}: Vertretung für ${absent.name} offen`)
+      await logShift(period.id, self.name, sub ? `${day}: ${sub.name} vertritt ${absent.name}` : `${day}: Vertretung für ${absent.name} offen`)
     }
   }
   revalidatePath('/plan', 'layout')
@@ -476,13 +476,13 @@ export async function toggleSpecialTask(fd: FormData) {
     if (t.staff_id !== me.id && !(await canEditOthers())) return
     await query('update special_tasks set staff_id = null, updated_by = $2, updated_at = now() where id = $1', [t.id, me.name])
     const who = t.staff_id === me.id ? '' : ` (${(await getStaff(t.staff_id))?.name})`
-    await addLog(t.period_id, me.name, `Sonderaufgabe „${t.name}“ abgegeben${who}`)
+    await logShift(t.period_id, me.name, `Sonderaufgabe „${t.name}“ abgegeben${who}`)
   } else {
     const done = await query(
       'update special_tasks set staff_id = $2, updated_by = $3, updated_at = now() where id = $1 and staff_id is null returning 1',
       [t.id, me.id, me.name],
     )
-    if (done.length) await addLog(t.period_id, me.name, `Sonderaufgabe „${t.name}“ übernommen`)
+    if (done.length) await logShift(t.period_id, me.name, `Sonderaufgabe „${t.name}“ übernommen`)
   }
   revalidatePath('/', 'layout')
 }
@@ -500,7 +500,7 @@ export async function toggleDaily(fd: FormData) {
     if (slot.staff_id !== me.id && !(await canEditOthers())) return
     await query('delete from daily_slots where period_id = $1 and date = $2', [period.id, date])
     const who = slot.staff_id === me.id ? '' : ` (${(await getStaff(slot.staff_id))?.name})`
-    await addLog(period.id, me.name, `${formatDate(date)} freigegeben${who}`)
+    await logShift(period.id, me.name, `${formatDate(date)} freigegeben${who}`)
   } else {
     const workdays = workdaysOf(period, await listClosedDays(period.year_id))
     if (!workdays.includes(date)) return
@@ -509,7 +509,7 @@ export async function toggleDaily(fd: FormData) {
        on conflict do nothing returning 1`,
       [period.id, date, me.id, me.name],
     )
-    if (done.length) await addLog(period.id, me.name, `${formatDate(date)} übernommen`)
+    if (done.length) await logShift(period.id, me.name, `${formatDate(date)} übernommen`)
   }
   revalidatePath('/plan', 'layout')
 }
@@ -641,8 +641,14 @@ async function origin() {
   return `${proto}://${host}`
 }
 
+/** Änderung am Schichtplan: im Verlauf speichern und ggf. per E-Mail „bei Änderungen“ melden */
+async function logShift(periodId: number, actor: string, message: string) {
+  await addLog(periodId, actor, message)
+  await notifyChange('shifts', `${actor}: ${message}`)
+}
+
 /** Nach der Antwort ggf. eine Aktualisierungs-E-Mail schicken (blockiert die Seite nicht). */
-async function notifyChange(topic: 'absences' | 'appointments', change: string) {
+async function notifyChange(topic: Topic, change: string) {
   const o = await origin()
   after(() => sendUpdate(o, topic, change))
 }
