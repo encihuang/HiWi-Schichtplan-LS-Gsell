@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 const AREAS = {
   hilfskraefte: {
     title: 'Studentische Hilfskräfte',
-    text: 'Schichtplan: Dienste übernehmen, Verfügbarkeiten, Vertretungen, Sonderaufgaben.',
+    text: 'Schichtplan: Dienste übernehmen, Verfügbarkeiten, Vertretungen, Sonderaufgaben. Abwesenheiten und Urlaube melden.',
     filter: isHiwi,
   },
   team: {
@@ -89,10 +89,6 @@ function AreaPicker() {
           <span className="mt-1 block text-sm text-neutral-600">
             Wer hat wann Dienst, wer ist abwesend – für Prof. Gsell und das Sekretariat, ohne Anmeldung.
           </span>
-        </Link>
-        <Link href="/abwesenheiten" className={tile}>
-          <span className="block font-bold text-lmu-darker">Abwesenheiten und Urlaube</span>
-          <span className="mt-1 block text-sm text-neutral-600">Für alle: eintragen und dem Sekretariat per E-Mail melden.</span>
         </Link>
       </div>
     </div>
