@@ -5,11 +5,14 @@ import { calcHeader, calcRowsText, contentDisposition, loadExport } from '@/lib/
 import { AVAILABILITY_RGB } from '@/lib/plan-styles'
 import { AVAILABILITY_LABELS } from '@/lib/data'
 import { currentStaff } from '@/lib/session'
+import { canSeePlan } from '@/lib/data'
 
 const GREEN: [number, number, number] = [0, 136, 58]
 
 export async function GET(_: Request, ctx: RouteContext<'/export/[periodId]/pdf'>) {
-  if (!(await currentStaff())) return new Response('Bitte zuerst auswählen, wer du bist.', { status: 401 })
+  const me = await currentStaff()
+  if (!me) return new Response('Bitte zuerst auswählen, wer du bist.', { status: 401 })
+  if (!canSeePlan(me)) return new Response('Kein Zugriff auf den Schichtplan.', { status: 403 })
   const data = await loadExport(Number((await ctx.params).periodId))
   if (!data) return new Response('Nicht gefunden', { status: 404 })
 

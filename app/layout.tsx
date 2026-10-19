@@ -4,6 +4,7 @@ import { Roboto } from 'next/font/google'
 import { Logo } from '@/components/logo'
 import { LinkPending } from '@/components/link-pending'
 import { currentStaff } from '@/lib/session'
+import { canSeePlan, isHiwi } from '@/lib/data'
 import { switchStaff } from './actions'
 import { SubmitButton } from '@/components/slot-button'
 import { APP_TITLE, CHAIR } from '@/lib/brand'
@@ -31,12 +32,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </div>
             </Link>
             <nav className="flex w-full flex-wrap items-center gap-x-1 gap-y-1 text-sm md:w-auto">
-              <Link href="/plan" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
-                <LinkPending>Schichtplan</LinkPending>
-              </Link>
-              {me && (
-                <Link href="/abwesenheiten" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
-                  <LinkPending>Abwesenheiten</LinkPending>
+              {(!me || canSeePlan(me)) && (
+                <Link
+                  href={me ? '/plan' : '/?bereich=hilfskraefte'}
+                  title="Studentische Hilfskräfte: Schichtplan und Abwesenheiten"
+                  className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium"
+                >
+                  <LinkPending>HiWis</LinkPending>
+                </Link>
+              )}
+              {(!me || !isHiwi(me)) && (
+                <Link
+                  href={me ? '/abwesenheiten' : '/?bereich=team'}
+                  title="Wiss. Mitarbeiter:innen, Akad. Räte und Sekretariat: Abwesenheiten und Urlaube"
+                  className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium"
+                >
+                  <LinkPending>Wiss. Mit.</LinkPending>
                 </Link>
               )}
               <Link href="/uebersicht" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">

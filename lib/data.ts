@@ -26,6 +26,8 @@ export const ROLE_LABELS: Record<Role, string> = {
 }
 export const ROLES = Object.keys(ROLE_LABELS) as Role[]
 export const isHiwi = (s: { role: Role }) => s.role === 'hiwi'
+/** Schichtplan: nicht für wiss. Mitarbeiter:innen */
+export const canSeePlan = (s: { role: Role }) => s.role !== 'wimi'
 export type Year = { id: number; start_year: number }
 export type Period = { id: number; year_id: number; kind: PeriodKind; start_date: string; end_date: string }
 export type ClosedDay = { date: string; name: string }

@@ -8,67 +8,105 @@ import {
 import { addDays, formatDate, formatDateTime, todayIso, WEEKDAYS, weekday } from './dates'
 import { query } from './db'
 import { decrypt, getSettings, setSetting } from './settings'
+import {
+  BLOCK_PLACEHOLDERS, DEFAULT_MAIL, type AutoMail, type BlockKey, type Frequency,
+} from './mail-shared'
+
+export { FREQUENCY_LABELS, PLACEHOLDERS, BLOCK_PLACEHOLDERS, DEFAULT_MAIL } from './mail-shared'
+export type { AutoMail, Frequency } from './mail-shared'
 
 // --- Einstellungen -------------------------------------------------------------------
 
 export type SmtpConfig = { host: string; port: number; security: 'starttls' | 'ssl'; user: string; from: string; hasPassword: boolean }
-export type Frequency = 'off' | 'daily' | 'weekly'
-export type DigestConfig = {
-  recipients: string[]
-  frequency: Frequency
-  /** 1 = Montag … 5 = Freitag (nur wöchentlich) */
-  weekday: number
-  weeks: number
-  absences: boolean
-  duties: boolean
-  appointments: boolean
-  /** nur senden, wenn seit der letzten E-Mail neue Abwesenheiten eingetragen wurden */
-  onlyNew: boolean
-  /** Aktualisierung senden, wenn sich nach der letzten Zusammenfassung etwas ändert */
-  updates: boolean
-  lastSent: string | null
-  lastResult: string | null
-}
 
-/** Frei einstellbare E-Mail-Texte (Platzhalter in geschweiften Klammern) */
-export type MailTexts = {
-  subject: string
-  updateSubject: string
-  intro: string
-  closing: string
-  absenceGreeting: string
-  absenceIntro: string
-  absenceClosing: string
-}
+/** Text der Abwesenheitsmeldung, die Personen selbst ans Sekretariat schicken (mailto) */
+export type AbsenceTexts = { absenceGreeting: string; absenceIntro: string; absenceClosing: string }
 
-export const DEFAULT_TEXTS: MailTexts = {
-  subject: '{titel}: Übersicht {datum}',
-  updateSubject: '{titel}: Aktualisierung – {aenderung}',
-  intro: '',
-  closing: '',
+export const DEFAULT_ABSENCE_TEXTS: AbsenceTexts = {
   absenceGreeting: 'Guten Tag,',
   absenceIntro: 'ich bin zu folgenden Zeiten abwesend:',
   absenceClosing: 'Viele Grüße',
 }
 
-export async function loadTexts(): Promise<MailTexts> {
+export async function loadAbsenceTexts(): Promise<AbsenceTexts> {
   const t = await getSettings('text.')
   return Object.fromEntries(
-    Object.entries(DEFAULT_TEXTS).map(([k, v]) => [k, t[k] ?? v]),
-  ) as MailTexts
+    Object.entries(DEFAULT_ABSENCE_TEXTS).map(([k, v]) => [k, t[k] ?? v]),
+  ) as AbsenceTexts
 }
 
-const fill = (template: string, values: Record<string, string>) =>
-  template.replace(/\{(\w+)\}/g, (m, k: string) => values[k] ?? m)
+/** Zustand einer automatischen E-Mail (getrennt von der Konfiguration, damit Speichern ihn nicht überschreibt) */
+export type MailState = { lastSent: string | null; lastResult: string | null }
 
-export const FREQUENCY_LABELS: Record<Frequency, string> = {
-  off: 'aus',
-  daily: 'werktäglich (Mo–Fr)',
-  weekly: 'wöchentlich',
+const clampMail = (m: Partial<AutoMail> & { id: string }): AutoMail => ({
+  ...DEFAULT_MAIL,
+  ...m,
+  frequency: (['daily', 'weekly'] as const).find((f) => f === m.frequency) ?? 'off',
+  weekday: Math.min(5, Math.max(1, Number(m.weekday) || 1)),
+  weeks: Math.min(26, Math.max(1, Number(m.weeks) || 4)),
+  staffIds: (m.staffIds ?? []).map(Number).filter(Boolean),
+  extra: m.extra ?? [],
+})
+
+/**
+ * Automatische E-Mails. Gespeichert als JSON unter „mails.json“. Gibt es das noch nicht, wird die frühere einzelne
+ * Zusammenfassung (digest.* und text.*) übernommen.
+ */
+export async function loadMails(): Promise<AutoMail[]> {
+  const [stored, d, t] = await Promise.all([getSettings('mails.'), getSettings('digest.'), getSettings('text.')])
+  const mails = stored.json
+  if (mails !== undefined) {
+    try {
+      return (JSON.parse(mails) as AutoMail[]).map(clampMail)
+    } catch {
+      return []
+    }
+  }
+  if (!d.recipients && !d.frequency) return [clampMail({ id: 'm1' })]
+  const blocks = [
+    d.absences !== '0' && '{neue_abwesenheiten}\n\n{abwesenheiten}',
+    d.appointments !== '0' && '{termine}',
+    d.duties === '1' && '{dienste}',
+  ].filter(Boolean)
+  const body = [t.intro, ...blocks, 'Aktuelle Übersicht: {link}', t.closing].filter((x) => x && x.trim()).join('\n\n')
+  return [
+    clampMail({
+      id: 'legacy',
+      name: 'Zusammenfassung',
+      extra: (d.recipients ?? '').split(/[\s,;]+/).filter(Boolean),
+      frequency: d.frequency as Frequency,
+      weekday: Number(d.weekday),
+      weeks: Number(d.weeks),
+      onlyNew: d.onlyNew === '1',
+      updates: d.updates === '1',
+      subject: t.subject || DEFAULT_MAIL.subject,
+      updateSubject: t.updateSubject || DEFAULT_MAIL.updateSubject,
+      body,
+    }),
+  ]
 }
+
+export async function saveMails(mails: AutoMail[]) {
+  await setSetting('mails.json', JSON.stringify(mails.map(clampMail)))
+}
+
+export async function loadMailStates(): Promise<Record<string, MailState>> {
+  const [s, d] = await Promise.all([getSettings('mailstate.'), getSettings('digest.')])
+  const out: Record<string, MailState> = {}
+  for (const [k, v] of Object.entries(s)) {
+    const [id, field] = k.split('.')
+    out[id] ??= { lastSent: null, lastResult: null }
+    if (field === 'lastSent' || field === 'lastResult') out[id][field] = v
+  }
+  // frühere einzelne Zusammenfassung
+  out.legacy ??= { lastSent: d.lastSent ?? null, lastResult: d.lastResult ?? null }
+  return out
+}
+
+const setState = (id: string, field: keyof MailState, value: string) => setSetting(`mailstate.${id}.${field}`, value)
 
 export async function loadMailConfig() {
-  const [m, d] = await Promise.all([getSettings('smtp.'), getSettings('digest.')])
+  const m = await getSettings('smtp.')
   const smtp: SmtpConfig = {
     host: m.host ?? '',
     port: Number(m.port) || 587,
@@ -77,20 +115,23 @@ export async function loadMailConfig() {
     from: m.from ?? '',
     hasPassword: !!m.password,
   }
-  const digest: DigestConfig = {
-    recipients: (d.recipients ?? '').split(/[\s,;]+/).filter(Boolean),
-    frequency: (['daily', 'weekly'] as const).find((f) => f === d.frequency) ?? 'off',
-    weekday: Math.min(5, Math.max(1, Number(d.weekday) || 1)),
-    weeks: Math.min(26, Math.max(1, Number(d.weeks) || 4)),
-    absences: d.absences !== '0',
-    duties: d.duties === '1',
-    appointments: d.appointments !== '0',
-    onlyNew: d.onlyNew === '1',
-    updates: d.updates === '1',
-    lastSent: d.lastSent ?? null,
-    lastResult: d.lastResult ?? null,
+  return { smtp, password: m.password ? decrypt(m.password) : null }
+}
+
+/** Empfänger-Adressen: ausgewählte aktive Personen mit E-Mail plus weitere Adressen */
+export async function recipientsOf(mail: AutoMail) {
+  const staff = await listStaff()
+  const chosen = staff.filter((s) => s.active && s.email && mail.staffIds.includes(s.id)).map((s) => s.email)
+  return [...new Set([...chosen, ...mail.extra])]
+}
+
+/** true, wenn eine eingeschaltete automatische E-Mail Abwesenheiten enthält und Empfänger hat */
+export async function absenceDigestActive() {
+  const mails = await loadMails()
+  for (const m of mails) {
+    if (m.frequency !== 'off' && covers(m, 'absences') && (await recipientsOf(m)).length) return true
   }
-  return { smtp, digest, texts: await loadTexts(), password: m.password ? decrypt(m.password) : null }
+  return false
 }
 
 // --- Versand ---------------------------------------------------------------------
@@ -99,7 +140,7 @@ async function send(to: string[], subject: string, text: string, html: string) {
   const { smtp, password } = await loadMailConfig()
   if (!smtp.host || !smtp.user || !smtp.from) throw new Error('SMTP-Server, Benutzername und Absender fehlen.')
   if (!password) throw new Error('SMTP-Passwort fehlt oder ist nicht mehr entschlüsselbar – bitte neu eingeben.')
-  if (!to.length) throw new Error('Keine Empfänger eingetragen.')
+  if (!to.length) throw new Error('Keine Empfänger ausgewählt.')
   const transport = nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port,
@@ -111,15 +152,54 @@ async function send(to: string[], subject: string, text: string, html: string) {
   await transport.sendMail({ from: smtp.from, to, subject, text, html })
 }
 
-// --- Zusammenfassung ---------------------------------------------------------------
+// --- Inhalt ------------------------------------------------------------------------
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
-type Section = { title: string; lines: string[] }
+type Block = { title: string; lines: string[] }
 
-export async function buildDigest(cfg: DigestConfig, texts: MailTexts, origin: string, change?: string) {
+const uses = (m: AutoMail, ...keys: string[]) => keys.some((k) => `${m.subject}\n${m.body}`.includes(`{${k}}`))
+
+/** Enthält die E-Mail Abwesenheiten bzw. Termine? (für Aktualisierungen) */
+function covers(m: AutoMail, topic: 'absences' | 'appointments') {
+  return topic === 'absences'
+    ? uses(m, 'abwesenheiten', 'neue_abwesenheiten', 'abwesend_heute', 'neu')
+    : uses(m, 'termine')
+}
+
+/** Ersetzt {platzhalter} in Text und HTML; Listen-Platzhalter werden zu Überschrift + Aufzählung. */
+function render(template: string, values: Record<string, string>, blocks: Partial<Record<BlockKey, Block>>) {
+  const parts = template.split(/(\{\w+\})/)
+  let text = ''
+  let html = ''
+  parts.forEach((part, i) => {
+    const key = /^\{(\w+)\}$/.exec(part)?.[1]
+    const block = key && key in BLOCK_PLACEHOLDERS ? blocks[key as BlockKey] : undefined
+    if (key && block) {
+      text += [block.title, ...block.lines.map((l) => `- ${l}`)].join('\n')
+      html += `<h3 style="color:#004d21;margin:14px 0 4px;font-size:15px">${esc(block.title)}</h3><ul style="margin:0 0 4px;padding-left:18px">${block.lines
+        .map((l) => `<li>${esc(l)}</li>`)
+        .join('')}</ul>`
+    } else if (key && key in values) {
+      text += values[key]
+      html += key === 'link' ? `<a href="${esc(values.link)}" style="color:#00883a">${esc(values.link)}</a>` : esc(values[key])
+    } else {
+      text += part
+      // Zeilenumbrüche direkt an Listen grenzen sonst doppelt an
+      const prevBlock = i > 0 && /^\{(\w+)\}$/.test(parts[i - 1]) && parts[i - 1].slice(1, -1) in BLOCK_PLACEHOLDERS
+      const nextBlock = i + 1 < parts.length && parts[i + 1].slice(1, -1) in BLOCK_PLACEHOLDERS
+      let h = part
+      if (prevBlock) h = h.replace(/^\n/, '')
+      if (nextBlock) h = h.replace(/\n$/, '')
+      html += esc(h).replace(/\n/g, '<br>')
+    }
+  })
+  return { text, html }
+}
+
+export async function buildMail(mail: AutoMail, state: MailState, origin: string, change?: string) {
   const today = todayIso()
-  const until = addDays(today, cfg.weeks * 7 - 1)
+  const until = addDays(today, mail.weeks * 7 - 1)
   const staff = await listStaff()
   const byId = new Map(staff.map((s) => [s.id, s]))
   const who = (id: number) => {
@@ -127,36 +207,45 @@ export async function buildDigest(cfg: DigestConfig, texts: MailTexts, origin: s
     return s ? `${s.name} (${ROLE_LABELS[s.role]})` : '?'
   }
   const absenceLine = (a: Absence) => `${who(a.staff_id)}: ${ABSENCE_LABELS[a.kind]} ${absenceRange(a)}${a.note ? ` – ${a.note}` : ''}`
-  const sections: Section[] = []
-  if (change) sections.push({ title: 'Änderung', lines: [change] })
 
-  const fresh = cfg.lastSent
+  const fresh = state.lastSent
     ? await query<Absence>(
         `select id, staff_id, from_date, to_date, kind, note, created_by from absences
          where created_at > $1 and to_date >= $2 order by from_date`,
-        [cfg.lastSent, today],
+        [state.lastSent, today],
       )
     : []
-  if (cfg.absences) {
-    if (fresh.length && !change) sections.push({ title: `Neu eingetragen seit ${formatDateTime(cfg.lastSent!)}`, lines: fresh.map(absenceLine) })
+
+  const blocks: Partial<Record<BlockKey, Block>> = {}
+  if (uses(mail, 'abwesenheiten')) {
     const all = await listAbsences(today, until)
-    sections.push({
+    blocks.abwesenheiten = {
       title: `Abwesenheiten und Urlaube bis ${formatDate(until)}`,
       lines: all.length ? all.map(absenceLine) : ['Niemand eingetragen.'],
-    })
-  }
-  if (cfg.appointments) {
-    const apps = await listAppointments(today, until)
-    if (apps.length) {
-      sections.push({
-        title: 'Termine für alle',
-        lines: apps.map((a) => `${formatDate(a.date)}${a.time ? ` ${a.time}` : ''}: ${a.title}${a.note ? ` – ${a.note}` : ''}`),
-      })
     }
   }
-  if (cfg.duties) {
+  if (uses(mail, 'abwesend_heute')) {
+    const now = await listAbsences(today, today)
+    blocks.abwesend_heute = { title: `Heute abwesend (${formatDate(today)})`, lines: now.length ? now.map(absenceLine) : ['Niemand.'] }
+  }
+  if (uses(mail, 'neue_abwesenheiten')) {
+    blocks.neue_abwesenheiten = {
+      title: state.lastSent ? `Neu eingetragen seit ${formatDateTime(state.lastSent)}` : 'Neu eingetragen',
+      lines: fresh.length ? fresh.map(absenceLine) : ['Nichts Neues.'],
+    }
+  }
+  if (uses(mail, 'termine')) {
+    const apps = await listAppointments(today, until)
+    blocks.termine = {
+      title: `Termine bis ${formatDate(until)}`,
+      lines: apps.length
+        ? apps.map((a) => `${formatDate(a.date)}${a.time ? ` ${a.time}` : ''}: ${a.title}${a.note ? ` – ${a.note}` : ''}`)
+        : ['Keine Termine.'],
+    }
+  }
+  if (uses(mail, 'dienste')) {
     const days = await loadDays(today, addDays(today, 6))
-    sections.push({
+    blocks.dienste = {
       title: 'Dienste der Hilfskräfte (nächste 7 Tage)',
       lines: days.map((d) => {
         const label = `${WEEKDAYS[weekday(d.date) - 1].slice(0, 2)}, ${formatDate(d.date)}`
@@ -165,83 +254,88 @@ export async function buildDigest(cfg: DigestConfig, texts: MailTexts, origin: s
         const people = d.entries.map((e) => `${byId.get(e.staff_id)?.name ?? '?'} (${e.label})`)
         return `${label}: ${people.join(', ') || 'niemand eingeteilt'}`
       }),
-    })
+    }
   }
 
-  const values = { titel: APP_TITLE, datum: formatDate(today), neu: String(fresh.length), aenderung: change ?? '' }
-  const subject = fill(change ? texts.updateSubject : texts.subject, values).replace(/\s+/g, ' ').trim()
-  const intro = fill(texts.intro, values).trim()
-  const closing = fill(texts.closing, values).trim()
-  const link = `${origin}/uebersicht`
-  const text = [
-    ...(intro ? [intro, ''] : [`${APP_TITLE} – ${CHAIR}`, '']),
-    ...sections.flatMap((s) => [s.title, ...s.lines.map((l) => `- ${l}`), '']),
-    `Aktuelle Übersicht: ${link}`,
-    ...(closing ? ['', closing] : []),
-  ].join('\n')
-  const para = (t: string) => `<p>${esc(t).replace(/\n/g, '<br>')}</p>`
-  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-${intro ? para(intro) : `<p style="color:#555">${esc(APP_TITLE)} – ${esc(CHAIR)}</p>`}
-${sections
-  .map(
-    (s) => `<h3 style="color:#004d21;margin:18px 0 6px">${esc(s.title)}</h3><ul style="margin:0;padding-left:18px">${s.lines
-      .map((l) => `<li>${esc(l)}</li>`)
-      .join('')}</ul>`,
-  )
-  .join('\n')}
-<p style="margin-top:18px"><a href="${esc(link)}" style="color:#00883a">Aktuelle Übersicht öffnen</a></p>
-${closing ? para(closing) : ''}
-</div>`
-  return { subject, text, html, fresh: fresh.length }
+  const values: Record<string, string> = {
+    titel: APP_TITLE,
+    lehrstuhl: CHAIR,
+    datum: formatDate(today),
+    wochentag: weekday(today) <= 5 ? WEEKDAYS[weekday(today) - 1] : '',
+    bis: formatDate(until),
+    wochen: String(mail.weeks),
+    neu: String(fresh.length),
+    aenderung: change ?? '',
+    link: `${origin}/uebersicht`,
+  }
+  const subject = render(change ? mail.updateSubject : mail.subject, values, {}).text.replace(/\s+/g, ' ').trim()
+  // Aktualisierung ohne {aenderung} im Text: Änderung oben einfügen
+  const body = change && !mail.body.includes('{aenderung}') ? `Änderung: {aenderung}\n\n${mail.body}` : mail.body
+  const out = render(body, values, blocks)
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45">${out.html}</div>`
+  return { subject, text: out.text, html, fresh: fresh.length }
 }
 
-/**
- * Zusammenfassung senden. force = sofort als Test (Knopf in den Einstellungen), sonst nur, wenn laut Zeitplan heute fällig
- * und heute noch nicht gesendet. Ergebnis wird in den Einstellungen angezeigt.
- */
-export async function runDigest(origin: string, force = false) {
-  const { digest, texts } = await loadMailConfig()
+// --- Zeitplan -------------------------------------------------------------------------
+
+const berlinDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date(iso))
+
+async function runOne(mail: AutoMail, state: MailState, origin: string, force: boolean) {
   const today = todayIso()
   if (!force) {
-    if (digest.frequency === 'off') return 'aus'
+    if (mail.frequency === 'off') return 'aus'
     const day = weekday(today)
-    if (day > 5 || (digest.frequency === 'weekly' && day !== digest.weekday)) return 'heute nicht fällig'
-    if (digest.lastSent && new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date(digest.lastSent)) === today) {
-      return 'heute schon gesendet'
-    }
+    if (day > 5 || (mail.frequency === 'weekly' && day !== mail.weekday)) return 'heute nicht fällig'
+    if (state.lastSent && berlinDay(state.lastSent) === today) return 'heute schon gesendet'
   }
   try {
-    const mail = await buildDigest(digest, texts, origin)
-    if (!force && digest.onlyNew && digest.lastSent && !mail.fresh) {
-      await setSetting('digest.lastResult', `${formatDateTime(new Date())}: nichts Neues, nicht gesendet`)
+    const out = await buildMail(mail, state, origin)
+    if (!force && mail.onlyNew && state.lastSent && !out.fresh) {
+      await setState(mail.id, 'lastResult', `${formatDateTime(new Date())}: nichts Neues, nicht gesendet`)
       return 'nichts Neues'
     }
-    await send(digest.recipients, mail.subject, mail.text, mail.html)
-    // Test-E-Mails zählen nicht als letzte Zusammenfassung („neu seit …“ bleibt erhalten)
-    if (!force) await setSetting('digest.lastSent', new Date().toISOString())
-    const what = force ? 'Test gesendet' : 'gesendet'
-    await setSetting('digest.lastResult', `${formatDateTime(new Date())}: ${what} an ${digest.recipients.join(', ')}`)
+    const to = await recipientsOf(mail)
+    await send(to, out.subject, out.text, out.html)
+    // Test-E-Mails zählen nicht als letzte Zusendung („neu seit …“ bleibt erhalten)
+    if (!force) await setState(mail.id, 'lastSent', new Date().toISOString())
+    await setState(mail.id, 'lastResult', `${formatDateTime(new Date())}: ${force ? 'Test gesendet' : 'gesendet'} an ${to.join(', ')}`)
     return 'gesendet'
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    await setSetting('digest.lastResult', `${formatDateTime(new Date())}: Fehler – ${msg}`)
+    await setState(mail.id, 'lastResult', `${formatDateTime(new Date())}: Fehler – ${msg}`)
     return `Fehler: ${msg}`
   }
 }
 
+/** Alle fälligen automatischen E-Mails senden (täglicher Cron). Mit id nur diese, sofort als Test. */
+export async function runMails(origin: string, testId?: string) {
+  const [mails, states] = await Promise.all([loadMails(), loadMailStates()])
+  const result: Record<string, string> = {}
+  for (const m of mails) {
+    if (testId && m.id !== testId) continue
+    result[m.name] = await runOne(m, states[m.id] ?? { lastSent: null, lastResult: null }, origin, !!testId)
+  }
+  return result
+}
+
 /**
- * Aktualisierung nach einer Änderung (Abwesenheit oder Termin eingetragen/gelöscht), falls eingeschaltet und
- * bereits eine planmäßige Zusammenfassung verschickt wurde. Fehler werden nur in den Einstellungen angezeigt.
+ * Aktualisierung nach einer Änderung (Abwesenheit oder Termin eingetragen/gelöscht) an alle E-Mails, die das Thema
+ * enthalten, Aktualisierungen eingeschaltet haben und schon einmal planmäßig verschickt wurden.
  */
 export async function sendUpdate(origin: string, topic: 'absences' | 'appointments', change: string) {
-  const { digest, texts } = await loadMailConfig()
-  if (!digest.updates || !digest[topic] || digest.frequency === 'off' || !digest.lastSent || !digest.recipients.length) return
-  try {
-    const mail = await buildDigest(digest, texts, origin, change)
-    await send(digest.recipients, mail.subject, mail.text, mail.html)
-    await setSetting('digest.lastResult', `${formatDateTime(new Date())}: Aktualisierung gesendet (${change})`)
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    await setSetting('digest.lastResult', `${formatDateTime(new Date())}: Fehler bei Aktualisierung – ${msg}`)
+  const [mails, states] = await Promise.all([loadMails(), loadMailStates()])
+  for (const m of mails) {
+    const state = states[m.id]
+    if (!m.updates || m.frequency === 'off' || !state?.lastSent || !covers(m, topic)) continue
+    try {
+      const to = await recipientsOf(m)
+      if (!to.length) continue
+      const out = await buildMail(m, state, origin, change)
+      await send(to, out.subject, out.text, out.html)
+      await setState(m.id, 'lastResult', `${formatDateTime(new Date())}: Aktualisierung gesendet (${change})`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      await setState(m.id, 'lastResult', `${formatDateTime(new Date())}: Fehler bei Aktualisierung – ${msg}`)
+    }
   }
 }

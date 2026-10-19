@@ -3,6 +3,7 @@ import { APP_TITLE, CHAIR } from '@/lib/brand'
 import { calcHeader, contentDisposition, loadExport } from '@/lib/export'
 import { AVAILABILITY_LABELS } from '@/lib/data'
 import { currentStaff } from '@/lib/session'
+import { canSeePlan } from '@/lib/data'
 
 const GREEN = 'FF00883A'
 const AVAILABILITY_ARGB = { ok: 'FF8CC152', ungern: 'FFF2A24B', nein: 'FFEC5A3F' } as const
@@ -10,7 +11,9 @@ const thin = { style: 'thin' as const, color: { argb: 'FFCCCCCC' } }
 const border = { top: thin, left: thin, bottom: thin, right: thin }
 
 export async function GET(_: Request, ctx: RouteContext<'/export/[periodId]/xlsx'>) {
-  if (!(await currentStaff())) return new Response('Bitte zuerst auswählen, wer du bist.', { status: 401 })
+  const me = await currentStaff()
+  if (!me) return new Response('Bitte zuerst auswählen, wer du bist.', { status: 401 })
+  if (!canSeePlan(me)) return new Response('Kein Zugriff auf den Schichtplan.', { status: 403 })
   const data = await loadExport(Number((await ctx.params).periodId))
   if (!data) return new Response('Nicht gefunden', { status: 404 })
 

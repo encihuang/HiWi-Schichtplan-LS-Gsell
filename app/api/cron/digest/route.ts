@@ -1,4 +1,4 @@
-import { runDigest } from '@/lib/mail'
+import { runMails } from '@/lib/mail'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,6 +9,6 @@ export async function GET(request: Request) {
   if (secret && request.headers.get('authorization') !== `Bearer ${secret}`) {
     return new Response('Nicht erlaubt', { status: 401 })
   }
-  const result = await runDigest(new URL(request.url).origin)
+  const result = await runMails(new URL(request.url).origin)
   return Response.json({ result })
 }

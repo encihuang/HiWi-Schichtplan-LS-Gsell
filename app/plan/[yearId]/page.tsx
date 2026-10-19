@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import {
   calcDaily, calcWeekly, getYear, listAppointments, listAvailability, listClosedDays, listDaily, listDuties, listLectures, listLog,
-  isHiwi, listExceptions, listExtras, listPeriods, listSpecialTasks, listStaff,
+  canSeePlan, isHiwi, listExceptions, listExtras, listPeriods, listSpecialTasks, listStaff,
 } from '@/lib/data'
 import { canEditOthers, currentStaff } from '@/lib/session'
 import { formatDate, formatDateTime, isLecture, PERIOD_LABELS, todayIso, yearLabel } from '@/lib/dates'
@@ -10,6 +10,7 @@ import { WeeklyPlan } from '@/components/weekly-plan'
 import { DateExceptions } from '@/components/date-exceptions'
 import { SpecialTasks } from '@/components/special-tasks'
 import { Appointments } from '@/components/appointments'
+import { AbsencesPanel } from '@/components/absences-panel'
 import { DailyPlan } from '@/components/daily-plan'
 import { CalcTable } from '@/components/calc-table'
 import { LinkPending } from '@/components/link-pending'
@@ -23,14 +24,15 @@ export default async function PlanPage({
   searchParams,
 }: {
   params: Promise<{ yearId: string }>
-  searchParams: Promise<{ tab?: string }>
+  searchParams: Promise<{ tab?: string; neu?: string }>
 }) {
-  const [{ yearId }, { tab }] = await Promise.all([params, searchParams])
+  const [{ yearId }, { tab, neu }] = await Promise.all([params, searchParams])
   // Parallel laden: jede Abfrage ist ein eigener Roundtrip zur Datenbank.
   const [me, year, periods] = await Promise.all([
     currentStaff(), getYear(Number(yearId)), listPeriods(Number(yearId)),
   ])
   if (!me) redirect('/')
+  if (!canSeePlan(me)) redirect('/abwesenheiten')
   if (!year) notFound()
 
   const today = todayIso()
@@ -176,6 +178,13 @@ export default async function PlanPage({
       <section className="mt-6 empty:hidden">
         <Appointments period={period} appointments={appointments} planning={others} />
       </section>
+
+      {isHiwi(me) && (
+        <section className="mt-6">
+          <h2 className="mb-3 text-lg font-semibold text-lmu-darker">Abwesenheiten und Urlaube</h2>
+          <AbsencesPanel me={me} neu={neu} back={here} />
+        </section>
+      )}
 
       <section className="mt-6">
         <SpecialTasks period={period} tasks={specialTasks} names={names} meId={me.id} canEditOthers={others} people={people} />
