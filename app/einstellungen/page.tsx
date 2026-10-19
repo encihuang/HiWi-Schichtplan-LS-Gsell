@@ -6,7 +6,7 @@ import { canStoreSecrets } from '@/lib/settings'
 import { MailSettings } from '@/components/mail-settings'
 import { formatDate, formatDateTime, LMU_VORLESUNGSZEITEN_URL, PERIOD_LABELS, yearLabel } from '@/lib/dates'
 import {
-  addClosedDay, addYear, deleteStaff, deleteYear, importStaff, removeClosedDay, saveStaff, saveYearDates,
+  addClosedDay, addYear, deleteStaff, deleteYear, removeClosedDay, saveStaff, saveYearDates,
 } from '../actions'
 
 export const dynamic = 'force-dynamic'
@@ -121,31 +121,6 @@ export default async function Settings() {
           </div>
         </div>
       </section>
-
-      <details className="rounded-lg bg-white p-4 shadow-sm">
-        <summary className="cursor-pointer font-semibold text-lmu-darker">Mehrere Personen auf einmal hinzufügen</summary>
-        <p className="mt-2 text-sm text-neutral-600">
-          Eine Person pro Zeile: <code>Name; E-Mail; Bereich</code> – E-Mail und Bereich sind optional, „Nachname, Vorname“
-          wie auf der Lehrstuhlseite geht auch. Bereich z. B. „Hilfskraft“, „Wiss. Mitarbeiter“, „Akad. Rat“,
-          „Sekretariat“. Wer schon da ist (gleicher Name oder gleiche E-Mail), wird nicht doppelt angelegt; fehlende
-          E-Mail-Adressen und der Bereich werden ergänzt.
-        </p>
-        <form action={importStaff} className="mt-3 grid gap-2">
-          <textarea
-            name="list"
-            rows={8}
-            required
-            placeholder={'Mustermann, Max; max.mustermann@jura.uni-muenchen.de; Wiss. Mitarbeiter\nErika Musterfrau; e.musterfrau@campus.lmu.de; Hilfskraft'}
-            className={`${input} font-mono`}
-          />
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <label className="flex items-center gap-2">
-              Bereich, falls in der Zeile keiner steht: <span className="w-56"><RoleSelect /></span>
-            </label>
-            <button className={btn}>Importieren</button>
-          </div>
-        </form>
-      </details>
 
       <MailSettings
         smtp={mail.smtp}

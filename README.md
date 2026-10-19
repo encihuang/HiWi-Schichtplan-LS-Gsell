@@ -14,8 +14,7 @@ Sekretariat** (Abwesenheiten). Hilfskräfte: **Wer bist du?** → **Studienjahr*
   (Betreff, Einleitung, Schluss, Text der Abwesenheitsmeldung) sind einstellbar; optional geht nach Änderungen an
   Abwesenheiten oder Terminen sofort eine Aktualisierung raus
 - Übersicht: „Mehr anzeigen“ (+4 Wochen) und „Gesamten Zeitraum anzeigen“
-- Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin);
-  in den Einstellungen lassen sich mehrere Personen auf einmal importieren (`Name; E-Mail; Bereich` je Zeile)
+- Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin)
 
 - Vorlesungszeit: wöchentlicher Dienst Mo–Fr (Ansprechpartner / Support)
 - Vorlesungsfreie Zeit: ein Dienst pro Werktag; Feiertage in Bayern werden automatisch ausgelassen

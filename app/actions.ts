@@ -514,7 +514,7 @@ export async function saveStaff(fd: FormData) {
   const end = isoOrNull(str(fd, 'end'))
   const active = fd.get('active') === 'on'
   const email = str(fd, 'email')
-  const role = roleOf(str(fd, 'role')) ?? 'hiwi'
+  const role = (ROLES as string[]).includes(str(fd, 'role')) ? (str(fd, 'role') as Role) : 'hiwi'
   if (!name) return
   if (email && !EMAIL.test(email)) return
   if (id) {
@@ -535,60 +535,6 @@ export async function saveStaff(fd: FormData) {
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-/** Bereich aus Text: Schlüssel (hiwi, wimi …) oder übliche Bezeichnungen */
-function roleOf(text: string): Role | null {
-  const t = text.toLowerCase()
-  if ((ROLES as string[]).includes(t)) return t as Role
-  if (/hilfskr|shk|hiwi|stud/.test(t)) return 'hiwi'
-  if (/sekret/.test(t)) return 'sekretariat'
-  if (/rat|rätin/.test(t)) return 'rat'
-  if (/prof|inhaber/.test(t)) return 'prof'
-  if (/wiss|mitarb|wimi/.test(t)) return 'wimi'
-  return null
-}
-
-/**
- * Mehrere Personen auf einmal: je Zeile „Name; E-Mail; Bereich“ (E-Mail und Bereich optional,
- * auch mit Komma oder Tab getrennt; „Nachname, Vorname“ wie auf der Lehrstuhlseite geht auch).
- * Wer schon da ist (gleiche E-Mail oder gleicher Name), wird nicht doppelt angelegt; fehlende
- * E-Mail-Adresse und der Bereich werden ergänzt.
- */
-export async function importStaff(fd: FormData) {
-  await requireAdmin()
-  const fallback = roleOf(str(fd, 'role')) ?? 'hiwi'
-  let added = 0, updated = 0
-  for (const line of str(fd, 'list').split(/\r?\n/)) {
-    const parts = line.split(/[;\t]/).map((x) => x.trim()).filter(Boolean)
-    if (!parts.length) continue
-    let name = parts[0]
-    const email = parts.find((x) => EMAIL.test(x)) ?? ''
-    const role = parts.slice(1).map(roleOf).find(Boolean) ?? fallback
-    // „Nachname, Vorname“ → „Vorname Nachname“
-    const m = name.match(/^([^,]+),\s*([^,]+)$/)
-    if (m) name = `${m[2]} ${m[1]}`
-    if (!name || EMAIL.test(name)) continue
-    const [hit] = await query<{ id: number }>(
-      `update staff set email = case when email = '' then $2 else email end, role = $3
-       where lower(name) = lower($1) or ($2 <> '' and lower(email) = lower($2)) returning id`,
-      [name, email, role],
-    )
-    if (hit) {
-      updated++
-      continue
-    }
-    const done = await query(
-      `insert into staff (name, email, role, hours_per_week, active) values ($1, $2, $3, 0, true)
-       on conflict (name) do nothing returning 1`,
-      [name, email, role],
-    )
-    if (done.length) added++
-  }
-  if (added || updated) {
-    await addLog(null, await actorName(), `Personen importiert: ${added} neu, ${updated} ergänzt`)
-  }
-  revalidatePath('/', 'layout')
-}
 
 export async function deleteStaff(fd: FormData) {
   await requireAdmin()
