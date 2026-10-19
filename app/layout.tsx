@@ -32,7 +32,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </Link>
             <nav className="flex w-full flex-wrap items-center gap-x-1 gap-y-1 text-sm md:w-auto">
               <Link href="/plan" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
-                <LinkPending>Plan</LinkPending>
+                <LinkPending>Schichtplan</LinkPending>
+              </Link>
+              <Link href="/abwesenheiten" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
+                <LinkPending>Abwesenheiten</LinkPending>
               </Link>
               <Link href="/uebersicht" className="px-3 py-2 rounded hover:bg-lmu-light text-lmu-darker font-medium">
                 <LinkPending>Übersicht</LinkPending>

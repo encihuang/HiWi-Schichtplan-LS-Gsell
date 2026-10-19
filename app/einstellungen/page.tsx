@@ -1,16 +1,16 @@
 import { redirect } from 'next/navigation'
-import { listClosedDays, listLog, listPeriods, listStaff, listYears } from '@/lib/data'
+import { listClosedDays, listLog, listPeriods, listStaff, listYears, ROLE_LABELS, type Role } from '@/lib/data'
 import { isAdmin } from '@/lib/session'
 import { formatDate, formatDateTime, LMU_VORLESUNGSZEITEN_URL, PERIOD_LABELS, yearLabel } from '@/lib/dates'
 import {
-  addClosedDay, addYear, deleteStaff, deleteYear, removeClosedDay, saveStaff, saveYearDates,
+  addClosedDay, addYear, deleteStaff, deleteYear, importStaff, removeClosedDay, saveStaff, saveYearDates,
 } from '../actions'
 
 export const dynamic = 'force-dynamic'
 
 const input = 'w-full min-w-0 rounded border border-neutral-300 px-2 py-1.5 text-sm focus:outline-2 focus:outline-lmu'
 const btn = 'rounded bg-lmu px-3 py-1.5 text-sm font-medium text-white hover:bg-lmu-dark'
-const cols = 'lg:grid-cols-[1.2fr_1.8fr_0.6fr_1fr_1fr_0.4fr_auto]'
+const cols = 'lg:grid-cols-[1.2fr_1.6fr_1.1fr_0.5fr_1fr_1fr_0.4fr_auto]'
 
 /** Eingabefeld mit Beschriftung, die nur auf schmalen Bildschirmen sichtbar ist (sonst Tabellenkopf) */
 function Field({ label, wide, className = '', children }: {
@@ -21,6 +21,16 @@ function Field({ label, wide, className = '', children }: {
       <span className="text-xs text-neutral-500 lg:hidden">{label}</span>
       {children}
     </label>
+  )
+}
+
+function RoleSelect({ value = 'hiwi' }: { value?: Role }) {
+  return (
+    <select name="role" defaultValue={value} className={input}>
+      {Object.entries(ROLE_LABELS).map(([k, l]) => (
+        <option key={k} value={k}>{l}</option>
+      ))}
+    </select>
   )
 }
 
@@ -39,15 +49,16 @@ export default async function Settings() {
 
       {/* Hilfskräfte */}
       <section>
-        <h2 className="text-lg font-semibold text-lmu-darker">Studentische Hilfskräfte</h2>
+        <h2 className="text-lg font-semibold text-lmu-darker">Personen</h2>
         <p className="text-sm text-neutral-600">
-          Nur aktive Hilfskräfte erscheinen in der Auswahl „Wer bist du?“. Die Wochenstunden bestimmen den Soll-Anteil;
-          Beginn und Ende (optional) begrenzen die Werktage in der vorlesungsfreien Zeit.
+          Nur aktive Personen erscheinen in der Auswahl „Wer bist du?“ ihres Bereichs. Den Schichtplan haben nur studentische
+          Hilfskräfte; ihre Wochenstunden bestimmen den Soll-Anteil, Beginn und Ende (optional) begrenzen die Werktage.
+          Abwesenheitsmeldungen gehen an die Person im Bereich „Sekretariat“.
         </p>
         <div className="mt-3 rounded-lg bg-white shadow-sm">
           <div className="divide-y divide-neutral-100">
             <div className={`hidden ${cols} gap-2 rounded-t-lg bg-lmu px-3 py-2 text-sm font-semibold text-white lg:grid`}>
-              <span>Name</span><span>E-Mail</span><span>h/Woche</span><span>Beginn</span><span>Ende</span><span>Aktiv</span><span className="w-28" />
+              <span>Name</span><span>E-Mail</span><span>Bereich</span><span>h/Woche</span><span>Beginn</span><span>Ende</span><span>Aktiv</span><span className="w-28" />
             </div>
             {staff.map((s) => (
               <div key={s.id} className="flex flex-col gap-2 px-3 py-3 lg:flex-row lg:items-center lg:py-2">
@@ -58,6 +69,9 @@ export default async function Settings() {
                   </Field>
                   <Field label="E-Mail" wide>
                     <input type="email" name="email" defaultValue={s.email} placeholder="name@campus.lmu.de" className={input} />
+                  </Field>
+                  <Field label="Bereich" wide>
+                    <RoleSelect value={s.role} />
                   </Field>
                   <Field label="h/Woche">
                     <input name="hours" defaultValue={s.hours_per_week} inputMode="decimal" className={input} />
@@ -81,10 +95,13 @@ export default async function Settings() {
             ))}
             <form action={saveStaff} className={`grid grid-cols-2 gap-2 rounded-b-lg bg-lmu-lighter px-3 py-3 ${cols} lg:items-center lg:py-2`}>
               <Field label="Name" wide>
-                <input name="name" placeholder="Neue Hilfskraft" required className={input} />
+                <input name="name" placeholder="Neue Person" required className={input} />
               </Field>
               <Field label="E-Mail" wide>
                 <input type="email" name="email" placeholder="E-Mail" className={input} />
+              </Field>
+              <Field label="Bereich" wide>
+                <RoleSelect />
               </Field>
               <Field label="h/Woche">
                 <input name="hours" placeholder="h" inputMode="decimal" className={input} />
@@ -101,6 +118,31 @@ export default async function Settings() {
           </div>
         </div>
       </section>
+
+      <details className="rounded-lg bg-white p-4 shadow-sm">
+        <summary className="cursor-pointer font-semibold text-lmu-darker">Mehrere Personen auf einmal hinzufügen</summary>
+        <p className="mt-2 text-sm text-neutral-600">
+          Eine Person pro Zeile: <code>Name; E-Mail; Bereich</code> – E-Mail und Bereich sind optional, „Nachname, Vorname“
+          wie auf der Lehrstuhlseite geht auch. Bereich z. B. „Hilfskraft“, „Wiss. Mitarbeiter“, „Akad. Rat“,
+          „Sekretariat“. Wer schon da ist (gleicher Name oder gleiche E-Mail), wird nicht doppelt angelegt; fehlende
+          E-Mail-Adressen und der Bereich werden ergänzt.
+        </p>
+        <form action={importStaff} className="mt-3 grid gap-2">
+          <textarea
+            name="list"
+            rows={8}
+            required
+            placeholder={'Mustermann, Max; max.mustermann@jura.uni-muenchen.de; Wiss. Mitarbeiter\nErika Musterfrau; e.musterfrau@campus.lmu.de; Hilfskraft'}
+            className={`${input} font-mono`}
+          />
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <label className="flex items-center gap-2">
+              Bereich, falls in der Zeile keiner steht: <span className="w-56"><RoleSelect /></span>
+            </label>
+            <button className={btn}>Importieren</button>
+          </div>
+        </form>
+      </details>
 
       {/* Studienjahre */}
       <section>

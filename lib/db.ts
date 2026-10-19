@@ -105,6 +105,18 @@ create table if not exists appointments (
   created_at timestamptz not null default now()
 );
 create index if not exists appointments_date on appointments (date);
+create table if not exists absences (
+  id serial primary key,
+  staff_id int not null references staff(id) on delete cascade,
+  from_date text not null,
+  to_date text not null,
+  kind text not null check (kind in ('urlaub','krank','dienstreise','sonstiges')),
+  note text not null default '',
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  check (from_date <= to_date)
+);
+create index if not exists absences_dates on absences (to_date, from_date);
 create table if not exists changelog (
   id serial primary key,
   period_id int references periods(id) on delete cascade,
@@ -134,6 +146,8 @@ const MIGRATIONS = [
   `alter table staff add column if not exists email text not null default ''`,
   `alter table staff add column if not exists calendar_token text`,
   `create unique index if not exists staff_calendar_token on staff (calendar_token)`,
+  // Bereiche: studentische Hilfskräfte und übriges Lehrstuhlteam
+  `alter table staff add column if not exists role text not null default 'hiwi'`,
   // Ansprechpartner/Support (weekly_slots) -> Dienstarten: allein = Alle Aufgaben, zu zweit = Geteilt
   `do $$ begin
     if to_regclass('weekly_slots') is not null then

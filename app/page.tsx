@@ -1,26 +1,42 @@
 import Link from 'next/link'
-import { listStaff } from '@/lib/data'
+import { isHiwi, listStaff, ROLE_LABELS, type Staff } from '@/lib/data'
 import { currentStaff } from '@/lib/session'
 import { selectStaff } from './actions'
 
 export const dynamic = 'force-dynamic'
 
-export default async function Home() {
-  const [staff, me] = await Promise.all([listStaff(true), currentStaff()])
+const AREAS = {
+  hilfskraefte: {
+    title: 'Studentische Hilfskräfte',
+    text: 'Schichtplan: Dienste übernehmen, Verfügbarkeiten, Vertretungen, Sonderaufgaben.',
+    filter: isHiwi,
+  },
+  team: {
+    title: 'Wissenschaftliche Mitarbeiter:innen, Akad. Räte und Sekretariat',
+    text: 'Abwesenheiten und Urlaube eintragen und dem Sekretariat melden.',
+    filter: (s: Staff) => !isHiwi(s),
+  },
+} as const
+type Area = keyof typeof AREAS
+
+export default async function Home({ searchParams }: { searchParams: Promise<{ bereich?: string }> }) {
+  const { bereich } = await searchParams
+  const area = bereich && bereich in AREAS ? (bereich as Area) : null
+  if (!area) return <AreaPicker />
+
+  const [all, me] = await Promise.all([listStaff(true), currentStaff()])
+  const staff = all.filter(AREAS[area].filter)
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold text-lmu-darker">Wer bist du?</h1>
-      <p className="mt-1 text-neutral-600">Wähle deinen Namen, danach das Studienjahr und deine Schichten.</p>
-      <p className="mt-1 text-sm text-neutral-500">
-        Prof. Gsell und Sekretariat:{' '}
-        <Link href="/uebersicht" className="text-lmu underline">
-          Übersicht, wer wann Dienst hat
-        </Link>
+      <p className="text-sm">
+        <Link href="/" className="text-neutral-500 hover:text-lmu">← Bereiche</Link>
       </p>
+      <h1 className="mt-1 text-2xl font-bold text-lmu-darker">{AREAS[area].title}</h1>
+      <p className="mt-1 text-neutral-600">Wer bist du?</p>
 
       {staff.length === 0 ? (
         <div className="mt-6 rounded-lg border border-dashed border-lmu p-6 bg-white">
-          Noch keine Hilfskräfte eingetragen.{' '}
+          Noch niemand eingetragen.{' '}
           <Link href="/einstellungen" className="text-lmu font-medium underline">
             In den Einstellungen anlegen
           </Link>
@@ -40,7 +56,7 @@ export default async function Home() {
                 >
                   <span className="block text-lg font-semibold">{s.name}</span>
                   <span className={`text-sm ${me?.id === s.id ? 'text-white/85' : 'text-neutral-500'}`}>
-                    {s.hours_per_week.toLocaleString('de-DE')} h/Woche
+                    {isHiwi(s) ? `${s.hours_per_week.toLocaleString('de-DE')} h/Woche` : ROLE_LABELS[s.role]}
                   </span>
                 </button>
               </form>
@@ -48,6 +64,37 @@ export default async function Home() {
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+function AreaPicker() {
+  const tile = 'block rounded-lg border-2 border-transparent bg-white p-6 shadow-sm transition hover:border-lmu hover:bg-lmu-lighter'
+  return (
+    <div className="max-w-3xl mx-auto">
+      <h1 className="text-2xl font-bold text-lmu-darker">Willkommen</h1>
+      <p className="mt-1 text-neutral-600">Bitte wähle deinen Bereich.</p>
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        {(Object.keys(AREAS) as Area[]).map((k) => (
+          <Link key={k} href={`/?bereich=${k}`} className={tile}>
+            <span className="block text-lg font-bold text-lmu-darker">{AREAS[k].title}</span>
+            <span className="mt-2 block text-sm text-neutral-600">{AREAS[k].text}</span>
+            <span className="mt-4 block text-sm font-medium text-lmu">Weiter →</span>
+          </Link>
+        ))}
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <Link href="/uebersicht" className={tile}>
+          <span className="block font-bold text-lmu-darker">Übersicht für den Lehrstuhl</span>
+          <span className="mt-1 block text-sm text-neutral-600">
+            Wer hat wann Dienst, wer ist abwesend – für Prof. Gsell und das Sekretariat, ohne Anmeldung.
+          </span>
+        </Link>
+        <Link href="/abwesenheiten" className={tile}>
+          <span className="block font-bold text-lmu-darker">Abwesenheiten und Urlaube</span>
+          <span className="mt-1 block text-sm text-neutral-600">Für alle: eintragen und dem Sekretariat per E-Mail melden.</span>
+        </Link>
+      </div>
     </div>
   )
 }

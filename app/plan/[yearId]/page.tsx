@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import {
   calcDaily, calcWeekly, getYear, listAppointments, listAvailability, listClosedDays, listDaily, listDuties, listLectures, listLog,
-  listExceptions, listExtras, listPeriods, listSpecialTasks, listStaff,
+  isHiwi, listExceptions, listExtras, listPeriods, listSpecialTasks, listStaff,
 } from '@/lib/data'
 import { canEditOthers, currentStaff } from '@/lib/session'
 import { formatDate, formatDateTime, isLecture, PERIOD_LABELS, todayIso, yearLabel } from '@/lib/dates'
@@ -58,7 +58,7 @@ export default async function PlanPage({
       lecture ? listExtras(period.id) : none,
       lecture ? none : listDaily(period.id),
     ])
-  const active = staff.filter((s) => s.active)
+  const active = staff.filter((s) => s.active && isHiwi(s))
   const calc = lecture ? calcWeekly(period, active, closed, weekly, exceptions, extras) : calcDaily(period, active, closed, daily)
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const people = active.map((s) => ({ id: s.id, name: s.name }))
@@ -117,6 +117,13 @@ export default async function PlanPage({
           </Link>
         ))}
       </nav>
+
+      {!others && !isHiwi(me) && (
+        <div className="mt-3 rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm text-neutral-700" role="status">
+          <strong>Nur Ansicht:</strong> Schichten übernehmen die studentischen Hilfskräfte selbst. Zum Einteilen den
+          Planungsmodus einschalten.
+        </div>
+      )}
 
       {others && (
         <div className="mt-3 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2.5 text-sm text-amber-950" role="status">

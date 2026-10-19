@@ -45,3 +45,14 @@ export async function canEditOthers() {
   if ((await cookies()).get(PLAN_COOKIE)?.value !== '1') return false
   return isAdmin()
 }
+
+/**
+ * Schichten übernehmen/abgeben: nur Hilfskräfte selbst; andere (z. B. Sekretariat) nur im Planungsmodus.
+ */
+export async function requireShiftActor() {
+  const s = await requireStaff()
+  if (s.role !== 'hiwi' && !(await canEditOthers())) {
+    throw new Error('Schichten übernehmen nur studentische Hilfskräfte – zum Bearbeiten den Planungsmodus einschalten.')
+  }
+  return s
+}

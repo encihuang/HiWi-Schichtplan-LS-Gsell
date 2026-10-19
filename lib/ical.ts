@@ -2,7 +2,7 @@
 
 import { APP_TITLE } from './brand'
 import { addDays, PERIOD_LABELS } from './dates'
-import type { Appointment, DayInfo, Lecture, RosterEntry } from './data'
+import { ABSENCE_LABELS, type Absence, type Appointment, type DayInfo, type Lecture, type RosterEntry } from './data'
 
 const CRLF = '\r\n'
 const TZ = 'Europe/Berlin'
@@ -59,12 +59,13 @@ export function parseTimeRange(text: string): [string, string] | null {
   return a && b && a < b ? [a, b] : null
 }
 
-type Event = { uid: string; date: string; summary: string; description?: string; time?: [string, string] }
+/** end: letzter Tag eines mehrtägigen ganztägigen Termins */
+type Event = { uid: string; date: string; end?: string; summary: string; description?: string; time?: [string, string] }
 
 function vevent(e: Event, stamp: string) {
   const when = e.time
     ? [`DTSTART;TZID=${TZ}:${compact(e.date)}T${e.time[0]}00`, `DTEND;TZID=${TZ}:${compact(e.date)}T${e.time[1]}00`]
-    : [`DTSTART;VALUE=DATE:${compact(e.date)}`, `DTEND;VALUE=DATE:${compact(addDays(e.date, 1))}`]
+    : [`DTSTART;VALUE=DATE:${compact(e.date)}`, `DTEND;VALUE=DATE:${compact(addDays(e.end ?? e.date, 1))}`]
   return [
     'BEGIN:VEVENT',
     `UID:${e.uid}@hiwi-schichtplan`,
@@ -98,12 +99,25 @@ const lectureEvent = (l: Lecture, date: string, summary: string, description: st
  * Ganztägig: Dienste; mit Uhrzeit, falls angegeben: Vorlesungsbetreuung und Termine für alle.
  */
 export function buildCalendar(
-  days: DayInfo[], appointments: Appointment[], names: Record<number, string>, staffId: number | null, url: string,
+  days: DayInfo[], appointments: Appointment[], absences: Absence[], names: Record<number, string>, staffId: number | null,
+  url: string,
 ) {
   // Termine für alle stehen in beiden Feeds, auch an Wochenenden und Schließtagen.
   const events: Event[] = appointments.map((a) =>
     timedEvent(`termin-${a.id}`, a.date, a.time, a.title, [a.note, 'Termin für alle Hilfskräfte'].filter(Boolean).join('\n')),
   )
+  // Abwesenheiten: im eigenen Feed die eigenen, im Gesamtplan alle
+  for (const a of absences) {
+    if (staffId !== null && a.staff_id !== staffId) continue
+    const kind = ABSENCE_LABELS[a.kind]
+    events.push({
+      uid: `abwesend-${a.id}`,
+      date: a.from_date,
+      end: a.to_date,
+      summary: staffId === null ? `Abwesend: ${names[a.staff_id] ?? '?'} (${kind})` : kind,
+      description: a.note || undefined,
+    })
+  }
   for (const d of days) {
     if (!d.period || d.closed) continue
     const period = PERIOD_LABELS[d.period.kind]

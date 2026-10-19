@@ -1,5 +1,9 @@
 import { MailLink } from '@/components/mail-link'
-import { listSpecialTasks, listStaff, loadDays, type Appointment, type RosterEntry } from '@/lib/data'
+import {
+  ABSENCE_LABELS, isHiwi, listAbsences, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence, type Appointment,
+  type RosterEntry,
+} from '@/lib/data'
+import { absenceRange } from '@/lib/absence-mail'
 import { addDays, formatDate, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
 
 export const dynamic = 'force-dynamic'
@@ -22,6 +26,22 @@ function Appointments({ items, large = false }: { items: Appointment[]; large?: 
         </li>
       ))}
     </ul>
+  )
+}
+
+function Away({ items, names, large = false }: { items: Absence[]; names: Map<number, { name: string }>; large?: boolean }) {
+  if (!items.length) return null
+  return (
+    <div className={`${large ? 'mt-3 text-sm' : 'mt-1.5 text-[11px] leading-tight'} text-neutral-500`}>
+      <span className="font-semibold">Abwesend: </span>
+      {items.map((a, i) => (
+        <span key={a.id} title={a.note || undefined}>
+          {i > 0 && ', '}
+          {names.get(a.staff_id)?.name ?? '?'}
+          {large && ` (${ABSENCE_LABELS[a.kind]})`}
+        </span>
+      ))}
+    </div>
   )
 }
 
@@ -53,8 +73,12 @@ export default async function Overview() {
   const today = todayIso()
   const monday = addDays(today, 1 - weekday(today))
   const end = addDays(monday, WEEKS * 7 - 1)
-  const [days, staff] = await Promise.all([loadDays(monday, end), listStaff(true)])
-  const byId = new Map(staff.map((s) => [s.id, s]))
+  const [days, everyone, absences] = await Promise.all([
+    loadDays(monday, end), listStaff(true), listAbsences(today, addDays(today, 7 * 8)),
+  ])
+  const staff = everyone.filter(isHiwi)
+  const team = everyone.filter((s) => !isHiwi(s))
+  const byId = new Map(everyone.map((s) => [s.id, s]))
   // auch inaktive Personen anzeigen, falls noch eingeteilt
   for (const s of await listStaff()) if (!byId.has(s.id)) byId.set(s.id, s)
   const todayInfo = days.find((d) => d.date === today)
@@ -67,7 +91,9 @@ export default async function Overview() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-lmu-darker">Übersicht für den Lehrstuhl</h1>
-        <p className="text-neutral-600">Wer ist wann im Dienst und ansprechbar. Mit dem Briefumschlag öffnet sich eine E-Mail.</p>
+        <p className="text-neutral-600">
+          Wer ist wann im Dienst und ansprechbar, wer ist abwesend. Mit dem Briefumschlag öffnet sich eine E-Mail.
+        </p>
       </div>
 
       <section className="rounded-lg border-l-8 border-lmu bg-white p-5 shadow-sm">
@@ -89,6 +115,7 @@ export default async function Overview() {
             <People entries={todayInfo.entries} byId={byId} large />
           )}
           <Appointments items={todayInfo?.appointments ?? []} large />
+          <Away items={todayInfo?.absences ?? []} names={byId} large />
         </div>
       </section>
 
@@ -120,6 +147,7 @@ export default async function Overview() {
                     <People entries={d.entries} byId={byId} />
                   )}
                   <Appointments items={d.appointments} />
+                  <Away items={d.absences} names={byId} />
                 </div>
               )
             })}
@@ -150,6 +178,54 @@ export default async function Overview() {
                 </li>
               )
             })}
+          </ul>
+        </section>
+      )}
+
+      <section>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-semibold text-lmu-darker">Abwesenheiten und Urlaube (nächste 8 Wochen)</h2>
+          <a href="/abwesenheiten" className="text-sm text-lmu underline hover:text-lmu-darker">Abwesenheit eintragen</a>
+        </div>
+        {absences.length === 0 ? (
+          <p className="mt-2 text-sm text-neutral-500">Niemand eingetragen.</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-neutral-100 rounded-lg bg-white shadow-sm">
+            {absences.map((a) => {
+              const s = byId.get(a.staff_id)
+              const now = a.from_date <= today
+              return (
+                <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                  <span className="w-52 shrink-0">
+                    <span className="font-semibold">{s?.name ?? '?'}</span>
+                    {s && <span className="block text-xs text-neutral-500">{ROLE_LABELS[s.role]}</span>}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className={now ? 'font-semibold text-amber-800' : ''}>{ABSENCE_LABELS[a.kind]}</span>{' '}
+                    <span className="tabular-nums">{absenceRange(a)}</span>
+                    {now && <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">jetzt</span>}
+                    {a.note && <span className="block text-neutral-600">{a.note}</span>}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
+
+      {team.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-lmu-darker">Lehrstuhlteam</h2>
+          <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {team.map((s) => (
+              <li key={s.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
+                <span>
+                  <span className="font-semibold">{s.name}</span>
+                  <span className="block text-xs text-neutral-500">{ROLE_LABELS[s.role]}</span>
+                </span>
+                <MailLink email={s.email} name={s.name} />
+              </li>
+            ))}
           </ul>
         </section>
       )}

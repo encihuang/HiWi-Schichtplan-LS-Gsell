@@ -3,8 +3,14 @@
 Schichtplan für die studentischen Hilfskräfte am Lehrstuhl für Bürgerliches Recht, Zivilverfahrensrecht,
 Europäisches Privat- und Verfahrensrecht (Prof. Dr. jur. Beate Gsell), LMU München.
 
-Ablauf: **Wer bist du?** → **Studienjahr** wählen (oder hinzufügen) → Schichten übernehmen in
-Wintersemester, vorlesungsfreier Zeit WiSe, Sommersemester und vorlesungsfreier Zeit SoSe.
+Startseite: zwei Bereiche – **Studentische Hilfskräfte** (Schichtplan) und **Wiss. Mitarbeiter:innen, Akad. Räte,
+Sekretariat** (Abwesenheiten). Hilfskräfte: **Wer bist du?** → **Studienjahr** wählen (oder hinzufügen) → Schichten
+übernehmen in Wintersemester, vorlesungsfreier Zeit WiSe, Sommersemester und vorlesungsfreier Zeit SoSe.
+
+- Abwesenheiten und Urlaube (für alle): eintragen, danach per E-Mail (mailto) ans Sekretariat melden;
+  sichtbar in der Übersicht und im Kalender-Abo
+- Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin);
+  in den Einstellungen lassen sich mehrere Personen auf einmal importieren (`Name; E-Mail; Bereich` je Zeile)
 
 - Vorlesungszeit: wöchentlicher Dienst Mo–Fr (Ansprechpartner / Support)
 - Vorlesungsfreie Zeit: ein Dienst pro Werktag; Feiertage in Bayern werden automatisch ausgelassen

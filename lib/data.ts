@@ -14,7 +14,18 @@ export type Staff = {
   end_date: string | null
   active: boolean
   email: string
+  role: Role
 }
+export type Role = 'hiwi' | 'wimi' | 'rat' | 'sekretariat' | 'prof'
+export const ROLE_LABELS: Record<Role, string> = {
+  hiwi: 'Studentische Hilfskraft',
+  wimi: 'Wiss. Mitarbeiter:in',
+  rat: 'Akad. Rat / Rätin',
+  sekretariat: 'Sekretariat',
+  prof: 'Lehrstuhlinhaberin',
+}
+export const ROLES = Object.keys(ROLE_LABELS) as Role[]
+export const isHiwi = (s: { role: Role }) => s.role === 'hiwi'
 export type Year = { id: number; start_year: number }
 export type Period = { id: number; year_id: number; kind: PeriodKind; start_date: string; end_date: string }
 export type ClosedDay = { date: string; name: string }
@@ -55,7 +66,7 @@ export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
 
 export async function listStaff(onlyActive = false) {
   const rows = await query<Staff>(
-    `select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email
+    `select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role
      from staff ${onlyActive ? 'where active' : ''} order by name`,
   )
   return rows
@@ -63,7 +74,7 @@ export async function listStaff(onlyActive = false) {
 
 export async function getStaff(id: number) {
   const [s] = await query<Staff>(
-    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email from staff where id = $1',
+    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role from staff where id = $1',
     [id],
   )
   return s
@@ -127,6 +138,42 @@ export const listDaily = (periodId: number) =>
     'select date, staff_id, updated_by, updated_at from daily_slots where period_id = $1 order by date',
     [periodId],
   )
+
+// --- Abwesenheiten und Urlaube ---------------------------------------------------
+
+export type AbsenceKind = 'urlaub' | 'krank' | 'dienstreise' | 'sonstiges'
+export const ABSENCE_LABELS: Record<AbsenceKind, string> = {
+  urlaub: 'Urlaub',
+  krank: 'Krank',
+  dienstreise: 'Dienstreise / Tagung',
+  sonstiges: 'Sonstige Abwesenheit',
+}
+export type Absence = { id: number; staff_id: number; from_date: string; to_date: string; kind: AbsenceKind; note: string; created_by: string }
+
+/** Abwesenheiten, die den Zeitraum from–to berühren (optional nur einer Person) */
+export const listAbsences = (from: string, to: string, staffId?: number) =>
+  query<Absence>(
+    `select id, staff_id, from_date, to_date, kind, note, created_by from absences
+     where to_date >= $1 and from_date <= $2 ${staffId ? 'and staff_id = $3' : ''}
+     order by from_date, to_date, id`,
+    staffId ? [from, to, staffId] : [from, to],
+  )
+
+export async function getAbsence(id: number) {
+  const [a] = await query<Absence>(
+    'select id, staff_id, from_date, to_date, kind, note, created_by from absences where id = $1',
+    [id],
+  )
+  return a
+}
+
+/** Sekretariat (Empfänger der Abwesenheitsmeldungen): erste aktive Person mit E-Mail */
+export async function secretary() {
+  const [s] = await query<{ name: string; email: string }>(
+    `select name, email from staff where role = 'sekretariat' and active and email <> '' order by id limit 1`,
+  )
+  return s ?? null
+}
 
 export const listAppointments = (from: string, to: string) =>
   query<Appointment>(
@@ -320,6 +367,7 @@ export function lectureRoster(
 
 export type DayInfo = {
   date: string
+  absences: Absence[]
   closed?: string
   period?: Period
   entries: RosterEntry[]
@@ -332,7 +380,7 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
   const periods = await query<Period>('select * from periods where start_date <= $2 and end_date >= $1 order by start_date', [
     from, to,
   ])
-  const [staff, appointments] = await Promise.all([listStaff(), listAppointments(from, to)])
+  const [staff, appointments, absences] = await Promise.all([listStaff(), listAppointments(from, to), listAbsences(from, to)])
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const data = await Promise.all(
     periods.map(async (p) => {
@@ -371,6 +419,7 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
       entries: open ? x.roster(d) : [],
       lectures: open ? x.lectures(d) : [],
       appointments: appointments.filter((a) => a.date === d),
+      absences: absences.filter((a) => a.from_date <= d && a.to_date >= d),
     })
   }
   return days
@@ -391,7 +440,7 @@ export async function calendarToken(staffId: number, renew = false) {
 export async function staffByCalendarToken(token: string) {
   if (!/^[\w-]{16,}$/.test(token)) return undefined
   const [s] = await query<Staff>(
-    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email from staff where calendar_token = $1',
+    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role from staff where calendar_token = $1',
     [token],
   )
   return s

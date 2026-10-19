@@ -60,12 +60,12 @@ export default async function CalendarPage() {
 
       <Feed
         title="Meine Dienste"
-        text={`Nur die Dienste und Vorlesungsbetreuungen von ${me.name}, mit den Kolleg:innen, die am selben Tag Dienst haben.`}
+        text={`Dienste und Vorlesungsbetreuungen von ${me.name} (mit den Kolleg:innen am selben Tag), eigene Abwesenheiten und Termine für alle.`}
         url={`${base}/meine.ics`}
       />
       <Feed
         title="Ganzer Schichtplan"
-        text="Alle Dienste und Vorlesungsbetreuungen des Lehrstuhls – wer wann im Dienst ist."
+        text="Alle Dienste, Vorlesungsbetreuungen, Termine und Abwesenheiten des Lehrstuhls."
         url={`${base}/alle.ics`}
       />
 

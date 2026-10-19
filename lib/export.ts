@@ -1,6 +1,6 @@
 import 'server-only'
 import {
-  calcDaily, calcWeekly, coverageIssues, lectureRoster, DUTY_LABELS, getPeriod, getYear, listAvailability, listClosedDays, listDaily,
+  calcDaily, calcWeekly, coverageIssues, isHiwi, lectureRoster, DUTY_LABELS, getPeriod, getYear, listAvailability, listClosedDays, listDaily,
   listDuties, listExceptions, listExtras, listLectures, listLog, listSpecialTasks, listStaff, type AvailabilityStatus, type CalcResult,
 } from './data'
 import {
@@ -59,7 +59,7 @@ export async function loadExport(periodId: number): Promise<ExportData | null> {
   const year = await getYear(period.year_id)
   const [staff, closed, log] = await Promise.all([listStaff(), listClosedDays(period.year_id), listLog(period.id, 1)])
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
-  const active = staff.filter((s) => s.active)
+  const active = staff.filter((s) => s.active && isHiwi(s))
   const lecture = isLecture(period.kind)
 
   let grid: string[][]
@@ -173,7 +173,7 @@ export async function loadExport(periodId: number): Promise<ExportData | null> {
     gridStatus,
     extra,
     calc,
-    emails: Object.fromEntries(staff.filter((s) => s.email).map((s) => [s.name, s.email])),
+    emails: Object.fromEntries(staff.filter((s) => s.email && isHiwi(s)).map((s) => [s.name, s.email])),
     facts: [
       `Werktage im Zeitraum: ${calc.totalWorkdays} (Mo-Fr ohne Feier- und Schließtage), ${calc.weeks.toLocaleString('de-DE')} Wochen`,
       `Feier- und Schließtage im Zeitraum: ${

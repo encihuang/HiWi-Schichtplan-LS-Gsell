@@ -5,13 +5,13 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { query } from '@/lib/db'
 import {
-  addLog, AVAILABILITY_LABELS, calendarToken, createYear, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
-  type AvailabilityStatus, type DutyKind,
+  ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, calendarToken, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
+  type AbsenceKind, type AvailabilityStatus, type DutyKind, type Role,
 } from '@/lib/data'
 import { formatDate, PERIOD_KINDS, todayIso, WEEKDAYS, weekday, wsLecture, yearLabel, isLecture } from '@/lib/dates'
 import {
-  ACCESS_COOKIE, ADMIN_COOKIE, canEditOthers, currentStaff, isAdmin, PLAN_COOKIE, requireAdmin, requireStaff, sha256,
-  STAFF_COOKIE,
+  ACCESS_COOKIE, ADMIN_COOKIE, canEditOthers, currentStaff, isAdmin, PLAN_COOKIE, requireAdmin, requireShiftActor, requireStaff,
+  sha256, STAFF_COOKIE,
 } from '@/lib/session'
 
 const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax' as const, path: '/', maxAge: 60 * 60 * 24 * 365 }
@@ -30,7 +30,7 @@ export async function selectStaff(fd: FormData) {
   const s = await getStaff(num(fd, 'id'))
   if (!s?.active) redirect('/')
   ;(await cookies()).set(STAFF_COOKIE, String(s.id), COOKIE_OPTS)
-  redirect('/plan')
+  redirect(s.role === 'hiwi' ? '/plan' : '/abwesenheiten')
 }
 
 export async function switchStaff() {
@@ -87,7 +87,7 @@ export async function addYear() {
 
 /** Zeile einer anderen Person nur im Planungsmodus. */
 async function targetStaff(fd: FormData) {
-  const me = await requireStaff()
+  const me = await requireShiftActor()
   const id = num(fd, 'staff') || me.id
   if (id !== me.id && !(await canEditOthers())) return null
   const s = id === me.id ? me : await getStaff(id)
@@ -155,7 +155,7 @@ export async function setAvailability(fd: FormData) {
 
 /** Vorlesung oder weitere Aufgabe an einem oder mehreren Wochentagen anlegen. */
 export async function addLecture(fd: FormData) {
-  const [me, period] = await Promise.all([requireStaff(), lecturePeriod(fd)])
+  const [me, period] = await Promise.all([requireShiftActor(), lecturePeriod(fd)])
   const name = str(fd, 'name')
   const time = str(fd, 'time')
   const days = fd.getAll('weekday').map(Number).filter(dayOk)
@@ -172,7 +172,7 @@ export async function addLecture(fd: FormData) {
 }
 
 export async function deleteLecture(fd: FormData) {
-  const [me, period] = await Promise.all([requireStaff(), lecturePeriod(fd)])
+  const [me, period] = await Promise.all([requireShiftActor(), lecturePeriod(fd)])
   const name = str(fd, 'name')
   if (!period || !name) return
   await query('delete from lectures where period_id = $1 and name = $2', [period.id, name])
@@ -182,7 +182,7 @@ export async function deleteLecture(fd: FormData) {
 
 /** Betreuung einer Vorlesung an einem Tag übernehmen bzw. freigeben. */
 export async function toggleLecture(fd: FormData) {
-  const me = await requireStaff()
+  const me = await requireShiftActor()
   const [l] = await query<{ id: number; period_id: number; name: string; weekday: number; staff_id: number | null }>(
     'select id, period_id, name, weekday, staff_id from lectures where id = $1',
     [num(fd, 'lecture')],
@@ -275,7 +275,7 @@ export async function assignDaily(fd: FormData) {
  * substitute setzt die Vertretung ("assignee", 0 = offen) für "staff".
  */
 export async function dateException(fd: FormData) {
-  const [self, period, planning] = await Promise.all([requireStaff(), lecturePeriod(fd), canEditOthers()])
+  const [self, period, planning] = await Promise.all([requireShiftActor(), lecturePeriod(fd), canEditOthers()])
   const date = isoOrNull(str(fd, 'date'))
   const op = str(fd, 'op')
   if (!period || !date) return
@@ -354,7 +354,7 @@ export async function dateException(fd: FormData) {
 // --- Sonderaufgaben (ohne Datum) ---------------------------------------------
 
 export async function addSpecialTask(fd: FormData) {
-  const me = await requireStaff()
+  const me = await requireShiftActor()
   const period = await getPeriod(num(fd, 'period'))
   const name = str(fd, 'name')
   if (!period || !name) return
@@ -368,12 +368,45 @@ export async function addSpecialTask(fd: FormData) {
 }
 
 export async function deleteSpecialTask(fd: FormData) {
-  const me = await requireStaff()
+  const me = await requireShiftActor()
   const [t] = await query<{ period_id: number; name: string }>(
     'delete from special_tasks where id = $1 returning period_id, name',
     [num(fd, 'task')],
   )
   if (t) await addLog(t.period_id, me.name, `Sonderaufgabe „${t.name}“ gelöscht`)
+  revalidatePath('/', 'layout')
+}
+
+// --- Abwesenheiten und Urlaube -------------------------------------------------------
+
+/** Eigene Abwesenheit eintragen; im Planungsmodus bzw. mit Einstellungs-Passwort auch für andere. */
+export async function addAbsence(fd: FormData) {
+  const me = await requireStaff()
+  const from = isoOrNull(str(fd, 'from'))
+  const to = isoOrNull(str(fd, 'to')) ?? from
+  const kind = str(fd, 'kind')
+  if (!from || !to || from > to || !(kind in ABSENCE_LABELS)) return
+  const personId = num(fd, 'person')
+  const person = personId && personId !== me.id && (await isAdmin()) ? await getStaff(personId) : me
+  if (!person) return
+  const [a] = await query<{ id: number }>(
+    'insert into absences (staff_id, from_date, to_date, kind, note, created_by) values ($1, $2, $3, $4, $5, $6) returning id',
+    [person.id, from, to, kind, str(fd, 'note'), me.name],
+  )
+  const range = from === to ? formatDate(from) : `${formatDate(from)}–${formatDate(to)}`
+  const forWho = person.id === me.id ? '' : ` für ${person.name}`
+  await addLog(null, me.name, `${ABSENCE_LABELS[kind as AbsenceKind]} ${range} eingetragen${forWho}`)
+  revalidatePath('/', 'layout')
+  redirect(`/abwesenheiten?neu=${a.id}`)
+}
+
+export async function deleteAbsence(fd: FormData) {
+  const me = await requireStaff()
+  const a = await getAbsence(num(fd, 'absence'))
+  if (!a || (a.staff_id !== me.id && !(await isAdmin()))) return
+  await query('delete from absences where id = $1', [a.id])
+  const who = a.staff_id === me.id ? '' : ` (${(await getStaff(a.staff_id))?.name})`
+  await addLog(null, me.name, `${ABSENCE_LABELS[a.kind]} ${formatDate(a.from_date)}–${formatDate(a.to_date)} gelöscht${who}`)
   revalidatePath('/', 'layout')
 }
 
@@ -410,7 +443,7 @@ export async function deleteAppointment(fd: FormData) {
 
 /** Sonderaufgabe übernehmen bzw. abgeben */
 export async function toggleSpecialTask(fd: FormData) {
-  const me = await requireStaff()
+  const me = await requireShiftActor()
   const [t] = await query<{ id: number; period_id: number; name: string; staff_id: number | null }>(
     'select id, period_id, name, staff_id from special_tasks where id = $1',
     [num(fd, 'task')],
@@ -432,7 +465,7 @@ export async function toggleSpecialTask(fd: FormData) {
 }
 
 export async function toggleDaily(fd: FormData) {
-  const me = await requireStaff()
+  const me = await requireShiftActor()
   const period = await getPeriod(num(fd, 'period'))
   const date = isoOrNull(str(fd, 'date'))
   if (!period || isLecture(period.kind) || !date) return
@@ -469,21 +502,78 @@ export async function saveStaff(fd: FormData) {
   const end = isoOrNull(str(fd, 'end'))
   const active = fd.get('active') === 'on'
   const email = str(fd, 'email')
+  const role = roleOf(str(fd, 'role')) ?? 'hiwi'
   if (!name) return
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return
+  if (email && !EMAIL.test(email)) return
   if (id) {
     await query(
-      'update staff set name = $2, hours_per_week = $3, start_date = $4, end_date = $5, active = $6, email = $7 where id = $1',
-      [id, name, hours, start, end, active, email],
+      'update staff set name = $2, hours_per_week = $3, start_date = $4, end_date = $5, active = $6, email = $7, role = $8 where id = $1',
+      [id, name, hours, start, end, active, email, role],
     )
-    await addLog(null, await actorName(), `Hilfskraft ${name} geändert`)
+    await addLog(null, await actorName(), `${name} geändert`)
   } else {
     await query(
-      `insert into staff (name, hours_per_week, start_date, end_date, active, email) values ($1, $2, $3, $4, true, $5)
+      `insert into staff (name, hours_per_week, start_date, end_date, active, email, role) values ($1, $2, $3, $4, true, $5, $6)
        on conflict (name) do nothing`,
-      [name, hours, start, end, email],
+      [name, hours, start, end, email, role],
     )
-    await addLog(null, await actorName(), `Hilfskraft ${name} hinzugefügt`)
+    await addLog(null, await actorName(), `${name} hinzugefügt`)
+  }
+  revalidatePath('/', 'layout')
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** Bereich aus Text: Schlüssel (hiwi, wimi …) oder übliche Bezeichnungen */
+function roleOf(text: string): Role | null {
+  const t = text.toLowerCase()
+  if ((ROLES as string[]).includes(t)) return t as Role
+  if (/hilfskr|shk|hiwi|stud/.test(t)) return 'hiwi'
+  if (/sekret/.test(t)) return 'sekretariat'
+  if (/rat|rätin/.test(t)) return 'rat'
+  if (/prof|inhaber/.test(t)) return 'prof'
+  if (/wiss|mitarb|wimi/.test(t)) return 'wimi'
+  return null
+}
+
+/**
+ * Mehrere Personen auf einmal: je Zeile „Name; E-Mail; Bereich“ (E-Mail und Bereich optional,
+ * auch mit Komma oder Tab getrennt; „Nachname, Vorname“ wie auf der Lehrstuhlseite geht auch).
+ * Wer schon da ist (gleiche E-Mail oder gleicher Name), wird nicht doppelt angelegt; fehlende
+ * E-Mail-Adresse und der Bereich werden ergänzt.
+ */
+export async function importStaff(fd: FormData) {
+  await requireAdmin()
+  const fallback = roleOf(str(fd, 'role')) ?? 'hiwi'
+  let added = 0, updated = 0
+  for (const line of str(fd, 'list').split(/\r?\n/)) {
+    const parts = line.split(/[;\t]/).map((x) => x.trim()).filter(Boolean)
+    if (!parts.length) continue
+    let name = parts[0]
+    const email = parts.find((x) => EMAIL.test(x)) ?? ''
+    const role = parts.slice(1).map(roleOf).find(Boolean) ?? fallback
+    // „Nachname, Vorname“ → „Vorname Nachname“
+    const m = name.match(/^([^,]+),\s*([^,]+)$/)
+    if (m) name = `${m[2]} ${m[1]}`
+    if (!name || EMAIL.test(name)) continue
+    const [hit] = await query<{ id: number }>(
+      `update staff set email = case when email = '' then $2 else email end, role = $3
+       where lower(name) = lower($1) or ($2 <> '' and lower(email) = lower($2)) returning id`,
+      [name, email, role],
+    )
+    if (hit) {
+      updated++
+      continue
+    }
+    const done = await query(
+      `insert into staff (name, email, role, hours_per_week, active) values ($1, $2, $3, 0, true)
+       on conflict (name) do nothing returning 1`,
+      [name, email, role],
+    )
+    if (done.length) added++
+  }
+  if (added || updated) {
+    await addLog(null, await actorName(), `Personen importiert: ${added} neu, ${updated} ergänzt`)
   }
   revalidatePath('/', 'layout')
 }
@@ -493,7 +583,7 @@ export async function deleteStaff(fd: FormData) {
   const s = await getStaff(num(fd, 'id'))
   if (!s) return
   await query('delete from staff where id = $1', [s.id])
-  await addLog(null, await actorName(), `Hilfskraft ${s.name} gelöscht`)
+  await addLog(null, await actorName(), `${s.name} gelöscht`)
   revalidatePath('/', 'layout')
 }
 
