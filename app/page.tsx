@@ -12,9 +12,10 @@ const AREAS = {
     filter: isHiwi,
   },
   team: {
-    title: 'Wissenschaftliche Mitarbeiter:innen, Akad. Räte und Sekretariat',
+    title: 'Wissenschaftliche Mitarbeiter:innen und Akad. Räte',
     text: 'Abwesenheiten und Urlaube eintragen und dem Sekretariat melden.',
-    filter: (s: Staff) => !isHiwi(s),
+    // Sekretariat meldet keine eigenen Abwesenheiten hier
+    filter: (s: Staff) => !isHiwi(s) && s.role !== 'sekretariat',
   },
 } as const
 type Area = keyof typeof AREAS
