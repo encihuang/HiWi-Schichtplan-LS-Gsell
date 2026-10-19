@@ -4,7 +4,8 @@ import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { query } from '@/lib/db'
-import { runDigest } from '@/lib/mail'
+import { after } from 'next/server'
+import { DEFAULT_TEXTS, runDigest, sendUpdate } from '@/lib/mail'
 import { encrypt, setSetting } from '@/lib/settings'
 import {
   ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, calendarToken, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
@@ -398,6 +399,7 @@ export async function addAbsence(fd: FormData) {
   const range = from === to ? formatDate(from) : `${formatDate(from)}–${formatDate(to)}`
   const forWho = person.id === me.id ? '' : ` für ${person.name}`
   await addLog(null, me.name, `${ABSENCE_LABELS[kind as AbsenceKind]} ${range} eingetragen${forWho}`)
+  if (to >= todayIso()) await notifyChange('absences', `${person.name}: ${ABSENCE_LABELS[kind as AbsenceKind]} ${range} eingetragen`)
   revalidatePath('/', 'layout')
   redirect(`/abwesenheiten?neu=${a.id}`)
 }
@@ -409,6 +411,10 @@ export async function deleteAbsence(fd: FormData) {
   await query('delete from absences where id = $1', [a.id])
   const who = a.staff_id === me.id ? '' : ` (${(await getStaff(a.staff_id))?.name})`
   await addLog(null, me.name, `${ABSENCE_LABELS[a.kind]} ${formatDate(a.from_date)}–${formatDate(a.to_date)} gelöscht${who}`)
+  if (a.to_date >= todayIso()) {
+    const person = a.staff_id === me.id ? me.name : (await getStaff(a.staff_id))?.name
+    await notifyChange('absences', `${person}: ${ABSENCE_LABELS[a.kind]} ${formatDate(a.from_date)}–${formatDate(a.to_date)} gelöscht`)
+  }
   revalidatePath('/', 'layout')
 }
 
@@ -430,6 +436,7 @@ export async function addAppointment(fd: FormData) {
     date, str(fd, 'time'), title, str(fd, 'note'), me.name,
   ])
   await addLog(await periodIdOn(date), me.name, `Termin „${title}“ am ${formatDate(date)} für alle angelegt`)
+  if (date >= todayIso()) await notifyChange('appointments', `Termin „${title}“ am ${formatDate(date)} angelegt`)
   revalidatePath('/', 'layout')
 }
 
@@ -439,7 +446,10 @@ export async function deleteAppointment(fd: FormData) {
   const [a] = await query<{ date: string; title: string }>('delete from appointments where id = $1 returning date, title', [
     num(fd, 'appointment'),
   ])
-  if (a) await addLog(await periodIdOn(a.date), me.name, `Termin „${a.title}“ am ${formatDate(a.date)} gelöscht`)
+  if (a) {
+    await addLog(await periodIdOn(a.date), me.name, `Termin „${a.title}“ am ${formatDate(a.date)} gelöscht`)
+    if (a.date >= todayIso()) await notifyChange('appointments', `Termin „${a.title}“ am ${formatDate(a.date)} gelöscht`)
+  }
   revalidatePath('/', 'layout')
 }
 
@@ -610,20 +620,35 @@ export async function saveMailSettings(fd: FormData) {
   await setSetting('digest.frequency', ['daily', 'weekly'].includes(frequency) ? frequency : 'off')
   await setSetting('digest.weekday', String(Math.min(5, Math.max(1, num(fd, 'weekday') || 1))))
   await setSetting('digest.weeks', String(Math.min(26, Math.max(1, num(fd, 'weeks') || 4))))
-  for (const k of ['absences', 'duties', 'appointments', 'onlyNew']) {
+  for (const k of Object.keys(DEFAULT_TEXTS) as (keyof typeof DEFAULT_TEXTS)[]) {
+    const v = String(fd.get(`text_${k}`) ?? '').replace(/\r\n/g, '\n').trim()
+    // leerer Betreff = Standard; übrige Texte dürfen leer sein
+    await setSetting(`text.${k}`, v || (k === 'subject' || k === 'updateSubject' ? DEFAULT_TEXTS[k] : ''))
+  }
+  for (const k of ['absences', 'duties', 'appointments', 'onlyNew', 'updates']) {
     await setSetting(`digest.${k}`, fd.get(k) === 'on' ? '1' : '0')
   }
   await addLog(null, await actorName(), 'E-Mail-Einstellungen geändert')
   revalidatePath('/einstellungen')
 }
 
-/** Zusammenfassung sofort an die eingetragenen Empfänger schicken (zum Testen). */
-export async function sendTestDigest() {
-  await requireAdmin()
+async function origin() {
   const h = await headers()
   const host = h.get('x-forwarded-host') ?? h.get('host') ?? 'localhost:3000'
   const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')
-  await runDigest(`${proto}://${host}`, true)
+  return `${proto}://${host}`
+}
+
+/** Nach der Antwort ggf. eine Aktualisierungs-E-Mail schicken (blockiert die Seite nicht). */
+async function notifyChange(topic: 'absences' | 'appointments', change: string) {
+  const o = await origin()
+  after(() => sendUpdate(o, topic, change))
+}
+
+/** Zusammenfassung sofort an die eingetragenen Empfänger schicken (zum Testen). */
+export async function sendTestDigest() {
+  await requireAdmin()
+  await runDigest(await origin(), true)
   revalidatePath('/einstellungen')
 }
 

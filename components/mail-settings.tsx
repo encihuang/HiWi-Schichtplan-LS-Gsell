@@ -1,5 +1,5 @@
 import { saveMailSettings, sendTestDigest } from '@/app/actions'
-import { FREQUENCY_LABELS, type DigestConfig, type SmtpConfig } from '@/lib/mail'
+import { DEFAULT_TEXTS, FREQUENCY_LABELS, type DigestConfig, type MailTexts, type SmtpConfig } from '@/lib/mail'
 import { WEEKDAYS } from '@/lib/dates'
 import { SubmitButton } from './slot-button'
 
@@ -8,9 +8,10 @@ const label = 'grid min-w-0 gap-1 text-sm'
 const hint = 'text-xs text-neutral-500'
 
 /** Einstellungen: SMTP-Zugang (LMU-Konto) und regelmäßige E-Mail-Zusammenfassung. Das Passwort verlässt nie den Server. */
-export function MailSettings({ smtp, digest, canStoreSecrets, passwordReadable }: {
+export function MailSettings({ smtp, digest, texts, canStoreSecrets, passwordReadable }: {
   smtp: SmtpConfig
   digest: DigestConfig
+  texts: MailTexts
   canStoreSecrets: boolean
   passwordReadable: boolean
 }) {
@@ -117,6 +118,11 @@ export function MailSettings({ smtp, digest, canStoreSecrets, passwordReadable }
                 ['appointments', 'Termine für alle', digest.appointments],
                 ['duties', 'Dienste der Hilfskräfte (nächste 7 Tage)', digest.duties],
                 ['onlyNew', 'nur senden, wenn seit der letzten E-Mail neue Abwesenheiten eingetragen wurden', digest.onlyNew],
+                [
+                  'updates',
+                  'Aktualisierung sofort senden, wenn nach der letzten Zusammenfassung Abwesenheiten oder Termine eingetragen oder gelöscht werden',
+                  digest.updates,
+                ],
               ] as const
             ).map(([name, text, on]) => (
               <label key={name} className="flex items-center gap-2">
@@ -124,6 +130,47 @@ export function MailSettings({ smtp, digest, canStoreSecrets, passwordReadable }
               </label>
             ))}
           </div>
+        </fieldset>
+
+        <fieldset className="grid gap-3 sm:grid-cols-2">
+          <legend className="mb-1 font-semibold text-lmu-darker">E-Mail-Texte</legend>
+          <p className={`${hint} sm:col-span-2`}>
+            Platzhalter: <code>{'{titel}'}</code> App-Name, <code>{'{datum}'}</code> heutiges Datum,{' '}
+            <code>{'{neu}'}</code> Anzahl neuer Abwesenheiten, <code>{'{aenderung}'}</code> die Änderung (nur bei
+            Aktualisierungen). Leerer Betreff = Standard.
+          </p>
+          <label className={label}>
+            Betreff der Zusammenfassung
+            <input name="text_subject" defaultValue={texts.subject} placeholder={DEFAULT_TEXTS.subject} className={input} />
+          </label>
+          <label className={label}>
+            Betreff der Aktualisierung
+            <input name="text_updateSubject" defaultValue={texts.updateSubject} placeholder={DEFAULT_TEXTS.updateSubject} className={input} />
+          </label>
+          <label className={label}>
+            Einleitung (vor der Übersicht)
+            <textarea name="text_intro" rows={4} defaultValue={texts.intro} placeholder="z. B. Liebe Frau Kersting, anbei die aktuelle Übersicht." className={input} />
+          </label>
+          <label className={label}>
+            Schluss (nach der Übersicht)
+            <textarea name="text_closing" rows={4} defaultValue={texts.closing} placeholder="z. B. Viele Grüße" className={input} />
+          </label>
+          <p className={`${hint} sm:col-span-2`}>
+            E-Mail, die Personen nach dem Eintragen einer Abwesenheit ans Sekretariat schicken (Name des Absenders wird
+            automatisch angehängt):
+          </p>
+          <label className={label}>
+            Anrede
+            <input name="text_absenceGreeting" defaultValue={texts.absenceGreeting} className={input} />
+          </label>
+          <label className={label}>
+            Einleitung
+            <input name="text_absenceIntro" defaultValue={texts.absenceIntro} className={input} />
+          </label>
+          <label className={label}>
+            Gruß
+            <input name="text_absenceClosing" defaultValue={texts.absenceClosing} className={input} />
+          </label>
         </fieldset>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-neutral-100 pt-3">

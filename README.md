@@ -10,7 +10,9 @@ Sekretariat** (Abwesenheiten). Hilfskräfte: **Wer bist du?** → **Studienjahr*
 - Abwesenheiten und Urlaube (für alle): eintragen, danach per E-Mail (mailto) ans Sekretariat melden;
   sichtbar in der Übersicht und im Kalender-Abo
 - E-Mail-Zusammenfassung (Einstellungen → E-Mail-Versand): Empfänger, werktäglich oder wöchentlich, Versand über
-  das eigene LMU-Konto per SMTP; Vercel Cron ruft täglich um 5:00 UTC `/api/cron/digest` auf
+  das eigene LMU-Konto per SMTP; Vercel Cron ruft täglich um 5:00 UTC `/api/cron/digest` auf. E-Mail-Texte
+  (Betreff, Einleitung, Schluss, Text der Abwesenheitsmeldung) sind einstellbar; optional geht nach Änderungen an
+  Abwesenheiten oder Terminen sofort eine Aktualisierung raus
 - Übersicht: „Mehr anzeigen“ (+4 Wochen) und „Gesamten Zeitraum anzeigen“
 - Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin);
   in den Einstellungen lassen sich mehrere Personen auf einmal importieren (`Name; E-Mail; Bereich` je Zeile)

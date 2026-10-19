@@ -41,7 +41,8 @@ export default async function AbsencesPage({ searchParams }: { searchParams: Pro
   const byId = new Map(staff.map((s) => [s.id, s]))
   const name = (id: number) => byId.get(id)?.name ?? '?'
   const upcoming = mine.filter((a) => a.to_date >= today)
-  const mail = (items: Absence[]) => (sec ? absenceMailto(sec.email, name(items[0].staff_id), me.name, items) : null)
+  const mail = (items: Absence[]) =>
+    sec ? absenceMailto(sec.email, name(items[0].staff_id), me.name, items, mailCfg.texts) : null
   // gerade eingetragen: eigene oder (mit Passwort) für andere
   const justAdded = fresh && (fresh.staff_id === me.id || admin) ? fresh : undefined
 

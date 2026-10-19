@@ -150,6 +150,7 @@ export default async function Settings() {
       <MailSettings
         smtp={mail.smtp}
         digest={mail.digest}
+        texts={mail.texts}
         canStoreSecrets={canStoreSecrets()}
         passwordReadable={mail.password !== null}
       />

@@ -24,9 +24,42 @@ export type DigestConfig = {
   appointments: boolean
   /** nur senden, wenn seit der letzten E-Mail neue Abwesenheiten eingetragen wurden */
   onlyNew: boolean
+  /** Aktualisierung senden, wenn sich nach der letzten Zusammenfassung etwas ändert */
+  updates: boolean
   lastSent: string | null
   lastResult: string | null
 }
+
+/** Frei einstellbare E-Mail-Texte (Platzhalter in geschweiften Klammern) */
+export type MailTexts = {
+  subject: string
+  updateSubject: string
+  intro: string
+  closing: string
+  absenceGreeting: string
+  absenceIntro: string
+  absenceClosing: string
+}
+
+export const DEFAULT_TEXTS: MailTexts = {
+  subject: '{titel}: Übersicht {datum}',
+  updateSubject: '{titel}: Aktualisierung – {aenderung}',
+  intro: '',
+  closing: '',
+  absenceGreeting: 'Guten Tag,',
+  absenceIntro: 'ich bin zu folgenden Zeiten abwesend:',
+  absenceClosing: 'Viele Grüße',
+}
+
+export async function loadTexts(): Promise<MailTexts> {
+  const t = await getSettings('text.')
+  return Object.fromEntries(
+    Object.entries(DEFAULT_TEXTS).map(([k, v]) => [k, t[k] ?? v]),
+  ) as MailTexts
+}
+
+const fill = (template: string, values: Record<string, string>) =>
+  template.replace(/\{(\w+)\}/g, (m, k: string) => values[k] ?? m)
 
 export const FREQUENCY_LABELS: Record<Frequency, string> = {
   off: 'aus',
@@ -53,10 +86,11 @@ export async function loadMailConfig() {
     duties: d.duties === '1',
     appointments: d.appointments !== '0',
     onlyNew: d.onlyNew === '1',
+    updates: d.updates === '1',
     lastSent: d.lastSent ?? null,
     lastResult: d.lastResult ?? null,
   }
-  return { smtp, digest, password: m.password ? decrypt(m.password) : null }
+  return { smtp, digest, texts: await loadTexts(), password: m.password ? decrypt(m.password) : null }
 }
 
 // --- Versand ---------------------------------------------------------------------
@@ -83,7 +117,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 type Section = { title: string; lines: string[] }
 
-export async function buildDigest(cfg: DigestConfig, origin: string) {
+export async function buildDigest(cfg: DigestConfig, texts: MailTexts, origin: string, change?: string) {
   const today = todayIso()
   const until = addDays(today, cfg.weeks * 7 - 1)
   const staff = await listStaff()
@@ -94,6 +128,7 @@ export async function buildDigest(cfg: DigestConfig, origin: string) {
   }
   const absenceLine = (a: Absence) => `${who(a.staff_id)}: ${ABSENCE_LABELS[a.kind]} ${absenceRange(a)}${a.note ? ` – ${a.note}` : ''}`
   const sections: Section[] = []
+  if (change) sections.push({ title: 'Änderung', lines: [change] })
 
   const fresh = cfg.lastSent
     ? await query<Absence>(
@@ -103,7 +138,7 @@ export async function buildDigest(cfg: DigestConfig, origin: string) {
       )
     : []
   if (cfg.absences) {
-    if (fresh.length) sections.push({ title: `Neu eingetragen seit ${formatDateTime(cfg.lastSent!)}`, lines: fresh.map(absenceLine) })
+    if (fresh.length && !change) sections.push({ title: `Neu eingetragen seit ${formatDateTime(cfg.lastSent!)}`, lines: fresh.map(absenceLine) })
     const all = await listAbsences(today, until)
     sections.push({
       title: `Abwesenheiten und Urlaube bis ${formatDate(until)}`,
@@ -133,16 +168,20 @@ export async function buildDigest(cfg: DigestConfig, origin: string) {
     })
   }
 
-  const subject = `${APP_TITLE}: Übersicht ${formatDate(today)}${fresh.length ? ` – ${fresh.length} neue Abwesenheit${fresh.length === 1 ? '' : 'en'}` : ''}`
+  const values = { titel: APP_TITLE, datum: formatDate(today), neu: String(fresh.length), aenderung: change ?? '' }
+  const subject = fill(change ? texts.updateSubject : texts.subject, values).replace(/\s+/g, ' ').trim()
+  const intro = fill(texts.intro, values).trim()
+  const closing = fill(texts.closing, values).trim()
   const link = `${origin}/uebersicht`
   const text = [
-    `${APP_TITLE} – ${CHAIR}`,
-    '',
+    ...(intro ? [intro, ''] : [`${APP_TITLE} – ${CHAIR}`, '']),
     ...sections.flatMap((s) => [s.title, ...s.lines.map((l) => `- ${l}`), '']),
     `Aktuelle Übersicht: ${link}`,
+    ...(closing ? ['', closing] : []),
   ].join('\n')
+  const para = (t: string) => `<p>${esc(t).replace(/\n/g, '<br>')}</p>`
   const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<p style="color:#555">${esc(APP_TITLE)} – ${esc(CHAIR)}</p>
+${intro ? para(intro) : `<p style="color:#555">${esc(APP_TITLE)} – ${esc(CHAIR)}</p>`}
 ${sections
   .map(
     (s) => `<h3 style="color:#004d21;margin:18px 0 6px">${esc(s.title)}</h3><ul style="margin:0;padding-left:18px">${s.lines
@@ -151,6 +190,7 @@ ${sections
   )
   .join('\n')}
 <p style="margin-top:18px"><a href="${esc(link)}" style="color:#00883a">Aktuelle Übersicht öffnen</a></p>
+${closing ? para(closing) : ''}
 </div>`
   return { subject, text, html, fresh: fresh.length }
 }
@@ -160,7 +200,7 @@ ${sections
  * und heute noch nicht gesendet. Ergebnis wird in den Einstellungen angezeigt.
  */
 export async function runDigest(origin: string, force = false) {
-  const { digest } = await loadMailConfig()
+  const { digest, texts } = await loadMailConfig()
   const today = todayIso()
   if (!force) {
     if (digest.frequency === 'off') return 'aus'
@@ -171,7 +211,7 @@ export async function runDigest(origin: string, force = false) {
     }
   }
   try {
-    const mail = await buildDigest(digest, origin)
+    const mail = await buildDigest(digest, texts, origin)
     if (!force && digest.onlyNew && digest.lastSent && !mail.fresh) {
       await setSetting('digest.lastResult', `${formatDateTime(new Date())}: nichts Neues, nicht gesendet`)
       return 'nichts Neues'
@@ -186,5 +226,22 @@ export async function runDigest(origin: string, force = false) {
     const msg = e instanceof Error ? e.message : String(e)
     await setSetting('digest.lastResult', `${formatDateTime(new Date())}: Fehler – ${msg}`)
     return `Fehler: ${msg}`
+  }
+}
+
+/**
+ * Aktualisierung nach einer Änderung (Abwesenheit oder Termin eingetragen/gelöscht), falls eingeschaltet und
+ * bereits eine planmäßige Zusammenfassung verschickt wurde. Fehler werden nur in den Einstellungen angezeigt.
+ */
+export async function sendUpdate(origin: string, topic: 'absences' | 'appointments', change: string) {
+  const { digest, texts } = await loadMailConfig()
+  if (!digest.updates || !digest[topic] || digest.frequency === 'off' || !digest.lastSent || !digest.recipients.length) return
+  try {
+    const mail = await buildDigest(digest, texts, origin, change)
+    await send(digest.recipients, mail.subject, mail.text, mail.html)
+    await setSetting('digest.lastResult', `${formatDateTime(new Date())}: Aktualisierung gesendet (${change})`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    await setSetting('digest.lastResult', `${formatDateTime(new Date())}: Fehler bei Aktualisierung – ${msg}`)
   }
 }
