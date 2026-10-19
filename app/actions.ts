@@ -5,7 +5,8 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { query } from '@/lib/db'
 import { after } from 'next/server'
-import { DEFAULT_ABSENCE_TEXTS, DEFAULT_MAIL, loadMails, runMails, saveMails, sendUpdate } from '@/lib/mail'
+import { clampMail, DEFAULT_ABSENCE_TEXTS, loadMails, runMails, saveMails, sendUpdate } from '@/lib/mail'
+import { DEFAULT_MAILS, type Topic } from '@/lib/mail-shared'
 import { encrypt, setSetting } from '@/lib/settings'
 import {
   ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, calendarToken, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
@@ -582,32 +583,33 @@ export async function saveMail(fd: FormData) {
   const mails = await loadMails()
   const i = mails.findIndex((m) => m.id === id)
   if (i < 0) return
+  const { kind } = mails[i]
   const frequency = str(fd, 'frequency')
-  mails[i] = {
+  mails[i] = clampMail({
     id,
-    name: str(fd, 'name') || DEFAULT_MAIL.name,
+    kind,
+    name: str(fd, 'name') || DEFAULT_MAILS[kind].name,
     staffIds: fd.getAll('staff').map(Number).filter(Boolean),
     extra: str(fd, 'extra').split(/[\s,;]+/).filter((x) => EMAIL.test(x)),
     frequency: frequency === 'daily' || frequency === 'weekly' ? frequency : 'off',
     weekday: num(fd, 'weekday'),
+    topics: fd.getAll('topics').map(String) as Topic[],
     weeks: num(fd, 'weeks'),
-    onlyNew: fd.get('onlyNew') === 'on',
-    updates: fd.get('updates') === 'on',
-    subject: text(fd, 'subject') || DEFAULT_MAIL.subject,
-    updateSubject: text(fd, 'updateSubject') || DEFAULT_MAIL.updateSubject,
+    subject: text(fd, 'subject') || DEFAULT_MAILS[kind].subject,
     body: text(fd, 'body'),
-  }
+  })
   await saveMails(mails)
   await addLog(null, await actorName(), `Automatische E-Mail „${mails[i].name}“ geändert`)
   revalidatePath('/', 'layout')
 }
 
-/** Neue automatische E-Mail (zunächst ausgeschaltet) */
-export async function addMail() {
+/** Neue automatische E-Mail, regelmäßig oder bei Änderungen (zunächst ohne Empfänger, also inaktiv) */
+export async function addMail(fd: FormData) {
   await requireAdmin()
+  const kind = str(fd, 'kind') === 'change' ? 'change' : 'schedule'
   const mails = await loadMails()
   const id = `m${Date.now().toString(36)}`
-  mails.push({ ...DEFAULT_MAIL, id, name: mails.length ? 'Neue E-Mail' : DEFAULT_MAIL.name })
+  mails.push({ ...DEFAULT_MAILS[kind], id })
   await saveMails(mails)
   await addLog(null, await actorName(), 'Automatische E-Mail angelegt')
   revalidatePath('/einstellungen')
