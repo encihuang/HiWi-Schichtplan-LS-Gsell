@@ -1,8 +1,9 @@
 import { addMail, deleteMail, saveAbsenceTexts, saveMail, saveSmtp, sendTestMail } from '@/app/actions'
 import { ROLE_LABELS, ROLES, type Staff } from '@/lib/data'
 import type { AbsenceTexts, MailState, SmtpConfig } from '@/lib/mail'
-import { FREQUENCY_LABELS, type AutoMail } from '@/lib/mail-shared'
+import { FREQUENCY_LABELS, TOPIC_LABELS, type AutoMail } from '@/lib/mail-shared'
 import { WEEKDAYS } from '@/lib/dates'
+import { absenceBody } from '@/lib/absence-mail'
 import { MailTemplate } from './mail-template'
 import { SubmitButton } from './slot-button'
 
@@ -41,6 +42,10 @@ function Recipients({ mail, staff }: { mail: AutoMail; staff: Staff[] }) {
 }
 
 function schedule(m: AutoMail) {
+  if (m.kind === 'change') {
+    if (!m.topics.length) return 'aus'
+    return `bei Änderungen: ${m.topics.map((t) => (t === 'absences' ? 'Abwesenheiten' : 'Termine')).join(', ')}`
+  }
   if (m.frequency === 'off') return 'aus'
   return m.frequency === 'weekly' ? `wöchentlich, ${WEEKDAYS[m.weekday - 1]}` : FREQUENCY_LABELS.daily
 }
@@ -53,7 +58,7 @@ function MailCard({ mail, state, staff }: { mail: AutoMail; state?: MailState; s
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-3 [&::-webkit-details-marker]:hidden">
         <span className="text-neutral-400 transition-transform group-open:rotate-90">▸</span>
         <span className="font-semibold text-lmu-darker">{mail.name}</span>
-        <span className={`rounded px-1.5 text-xs ${mail.frequency === 'off' ? 'bg-neutral-100 text-neutral-600' : 'bg-lmu-light text-lmu-darker'}`}>
+        <span className={`rounded px-1.5 text-xs ${schedule(mail) === 'aus' ? 'bg-neutral-100 text-neutral-600' : 'bg-lmu-light text-lmu-darker'}`}>
           {schedule(mail)}
         </span>
         <span className="text-sm text-neutral-500">{count} Empfänger</span>
@@ -80,6 +85,24 @@ function MailCard({ mail, state, staff }: { mail: AutoMail; state?: MailState; s
             </label>
           </fieldset>
 
+          {mail.kind === 'change' ? (
+            <fieldset className="grid gap-3 sm:grid-cols-3">
+              <legend className={legend}>Senden, sobald …</legend>
+              <div className="grid gap-1.5 text-sm sm:col-span-2">
+                {Object.entries(TOPIC_LABELS).map(([k, l]) => (
+                  <label key={k} className="flex items-center gap-2">
+                    <input type="checkbox" name="topics" value={k} defaultChecked={mail.topics.includes(k as never)} className="accent-lmu" />
+                    {l}
+                  </label>
+                ))}
+                <span className={hint}>Gilt für Einträge, die heute oder später liegen. Die Änderung steht in {'{aenderung}'}.</span>
+              </div>
+              <label className={label}>
+                Vorschau (Wochen)
+                <input name="weeks" defaultValue={mail.weeks} inputMode="numeric" className={input} />
+              </label>
+            </fieldset>
+          ) : (
           <fieldset className="grid gap-3 sm:grid-cols-3">
             <legend className={legend}>Zeitplan</legend>
             <label className={label}>
@@ -102,22 +125,12 @@ function MailCard({ mail, state, staff }: { mail: AutoMail; state?: MailState; s
               Vorschau (Wochen)
               <input name="weeks" defaultValue={mail.weeks} inputMode="numeric" className={input} />
             </label>
-            <div className="grid gap-1.5 text-sm sm:col-span-3">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" name="onlyNew" defaultChecked={mail.onlyNew} className="accent-lmu" />
-                nur senden, wenn seit der letzten E-Mail neue Abwesenheiten eingetragen wurden
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" name="updates" defaultChecked={mail.updates} className="accent-lmu" />
-                Aktualisierung sofort senden, wenn danach Abwesenheiten oder Termine (soweit im Text enthalten) eingetragen
-                oder gelöscht werden
-              </label>
-            </div>
           </fieldset>
+          )}
 
           <fieldset>
             <legend className={legend}>Text</legend>
-            <MailTemplate subject={mail.subject} updateSubject={mail.updateSubject} body={mail.body} />
+            <MailTemplate kind={mail.kind} subject={mail.subject} body={mail.body} />
           </fieldset>
 
           <SubmitButton className={btn}>Speichern</SubmitButton>
@@ -223,13 +236,21 @@ export function MailSettings({ smtp, mails, states, staff, absenceTexts, canStor
           <div>
             <h2 className="text-lg font-semibold text-lmu-darker">Automatische E-Mails</h2>
             <p className="text-sm text-neutral-600">
-              Z. B. eine wöchentliche Übersicht für das Sekretariat und Prof. Gsell. Fällige E-Mails werden morgens gegen 7 Uhr
-              verschickt. Was drinsteht, bestimmen die Platzhalter im Text.
+              <strong>Regelmäßig:</strong> z. B. eine wöchentliche Übersicht für das Sekretariat und Prof. Gsell, morgens gegen
+              7 Uhr. <strong>Bei Änderungen:</strong> sofort, wenn jemand eine Abwesenheit oder einen Termin einträgt oder
+              löscht. Was drinsteht, bestimmen die Platzhalter im Text.
             </p>
           </div>
-          <form action={addMail}>
-            <SubmitButton className={btn}>+ Automatische E-Mail</SubmitButton>
-          </form>
+          <div className="flex flex-wrap gap-2">
+            <form action={addMail}>
+              <input type="hidden" name="kind" value="schedule" />
+              <SubmitButton className={btn}>+ Regelmäßige E-Mail</SubmitButton>
+            </form>
+            <form action={addMail}>
+              <input type="hidden" name="kind" value="change" />
+              <SubmitButton className={btn}>+ E-Mail bei Änderungen</SubmitButton>
+            </form>
+          </div>
         </div>
         <div className="mt-3 space-y-3">
           {mails.length === 0 && <p className="text-sm text-neutral-500">Noch keine automatischen E-Mails.</p>}
@@ -245,21 +266,29 @@ export function MailSettings({ smtp, mails, states, staff, absenceTexts, canStor
           Entwurf, der sich nach dem Eintragen einer Abwesenheit im Mailprogramm öffnet (an die Person im Bereich
           „Sekretariat“). Die Liste der Abwesenheiten und der Name des Absenders werden automatisch eingefügt.
         </p>
-        <form action={saveAbsenceTexts} className="mt-3 grid gap-3 rounded-lg bg-white p-4 shadow-sm sm:grid-cols-3">
-          <label className={label}>
-            Anrede
-            <input name="absenceGreeting" defaultValue={absenceTexts.absenceGreeting} className={input} />
-          </label>
-          <label className={label}>
-            Einleitung
-            <input name="absenceIntro" defaultValue={absenceTexts.absenceIntro} className={input} />
-          </label>
-          <label className={label}>
-            Gruß
-            <input name="absenceClosing" defaultValue={absenceTexts.absenceClosing} className={input} />
-          </label>
-          <div className="sm:col-span-3">
-            <SubmitButton className={btn}>Speichern</SubmitButton>
+        <form action={saveAbsenceTexts} className="mt-3 grid gap-4 rounded-lg bg-white p-4 shadow-sm lg:grid-cols-2">
+          <div className="grid content-start gap-3">
+            <label className={label}>
+              Anrede
+              <textarea name="absenceGreeting" rows={2} defaultValue={absenceTexts.absenceGreeting} className={input} />
+            </label>
+            <label className={label}>
+              Einleitung (vor der Liste der Abwesenheiten)
+              <textarea name="absenceIntro" rows={4} defaultValue={absenceTexts.absenceIntro} className={input} />
+            </label>
+            <label className={label}>
+              Gruß (vor dem Namen)
+              <textarea name="absenceClosing" rows={3} defaultValue={absenceTexts.absenceClosing} className={input} />
+            </label>
+            <div>
+              <SubmitButton className={btn}>Speichern</SubmitButton>
+            </div>
+          </div>
+          <div className="grid content-start gap-1 text-sm">
+            <span>Beispiel (gespeicherte Fassung)</span>
+            <pre className="whitespace-pre-wrap rounded border border-neutral-200 bg-neutral-50 p-3 font-sans text-sm text-neutral-800">
+              {absenceBody(absenceTexts, absenceTexts.absenceIntro, ['- Urlaub: Mo, 02.11.2026 – Fr, 06.11.2026'], 'Anna Muster')}
+            </pre>
           </div>
         </form>
       </section>

@@ -9,11 +9,8 @@ import { addDays, formatDate, formatDateTime, todayIso, WEEKDAYS, weekday } from
 import { query } from './db'
 import { decrypt, getSettings, setSetting } from './settings'
 import {
-  BLOCK_PLACEHOLDERS, DEFAULT_MAIL, type AutoMail, type BlockKey, type Frequency,
+  BLOCK_PLACEHOLDERS, DEFAULT_MAILS, TOPIC_LABELS, type AutoMail, type BlockKey, type Frequency, type Topic,
 } from './mail-shared'
-
-export { FREQUENCY_LABELS, PLACEHOLDERS, BLOCK_PLACEHOLDERS, DEFAULT_MAIL } from './mail-shared'
-export type { AutoMail, Frequency } from './mail-shared'
 
 // --- Einstellungen -------------------------------------------------------------------
 
@@ -38,15 +35,43 @@ export async function loadAbsenceTexts(): Promise<AbsenceTexts> {
 /** Zustand einer automatischen E-Mail (getrennt von der Konfiguration, damit Speichern ihn nicht überschreibt) */
 export type MailState = { lastSent: string | null; lastResult: string | null }
 
-const clampMail = (m: Partial<AutoMail> & { id: string }): AutoMail => ({
-  ...DEFAULT_MAIL,
-  ...m,
-  frequency: (['daily', 'weekly'] as const).find((f) => f === m.frequency) ?? 'off',
-  weekday: Math.min(5, Math.max(1, Number(m.weekday) || 1)),
-  weeks: Math.min(26, Math.max(1, Number(m.weeks) || 4)),
-  staffIds: (m.staffIds ?? []).map(Number).filter(Boolean),
-  extra: m.extra ?? [],
-})
+export function clampMail(m: Partial<AutoMail> & { id: string }): AutoMail {
+  const kind = m.kind === 'change' ? 'change' : 'schedule'
+  return {
+    ...DEFAULT_MAILS[kind],
+    ...m,
+    kind,
+    frequency: (['daily', 'weekly'] as const).find((f) => f === m.frequency) ?? 'off',
+    weekday: Math.min(5, Math.max(1, Number(m.weekday) || 1)),
+    weeks: Math.min(26, Math.max(1, Number(m.weeks) || 4)),
+    staffIds: (m.staffIds ?? []).map(Number).filter(Boolean),
+    extra: m.extra ?? [],
+    topics: (m.topics ?? []).filter((t): t is Topic => t in TOPIC_LABELS),
+  }
+}
+
+/** Frühere Form (eine E-Mail mit Häkchen „Aktualisierung senden“) */
+type OldMail = Partial<AutoMail> & { id: string; updates?: boolean; updateSubject?: string }
+
+/** Frühere E-Mail mit „Aktualisierung senden“ wird zu einer regelmäßigen und einer E-Mail bei Änderungen. */
+function upgrade(m: OldMail): AutoMail[] {
+  const mail = clampMail(m)
+  if (m.kind || !m.updates) return [mail]
+  const topics = (['absences', 'appointments'] as Topic[]).filter((t) => covers(mail, t))
+  return [
+    mail,
+    clampMail({
+      ...DEFAULT_MAILS.change,
+      id: `${m.id}-u`,
+      name: `${mail.name}: Änderungen`,
+      staffIds: mail.staffIds,
+      extra: mail.extra,
+      weeks: mail.weeks,
+      topics: topics.length ? topics : ['absences'],
+      subject: m.updateSubject || DEFAULT_MAILS.change.subject,
+    }),
+  ]
+}
 
 /**
  * Automatische E-Mails. Gespeichert als JSON unter „mails.json“. Gibt es das noch nicht, wird die frühere einzelne
@@ -54,10 +79,9 @@ const clampMail = (m: Partial<AutoMail> & { id: string }): AutoMail => ({
  */
 export async function loadMails(): Promise<AutoMail[]> {
   const [stored, d, t] = await Promise.all([getSettings('mails.'), getSettings('digest.'), getSettings('text.')])
-  const mails = stored.json
-  if (mails !== undefined) {
+  if (stored.json !== undefined) {
     try {
-      return (JSON.parse(mails) as AutoMail[]).map(clampMail)
+      return (JSON.parse(stored.json) as OldMail[]).flatMap(upgrade)
     } catch {
       return []
     }
@@ -69,21 +93,18 @@ export async function loadMails(): Promise<AutoMail[]> {
     d.duties === '1' && '{dienste}',
   ].filter(Boolean)
   const body = [t.intro, ...blocks, 'Aktuelle Übersicht: {link}', t.closing].filter((x) => x && x.trim()).join('\n\n')
-  return [
-    clampMail({
-      id: 'legacy',
-      name: 'Zusammenfassung',
-      extra: (d.recipients ?? '').split(/[\s,;]+/).filter(Boolean),
-      frequency: d.frequency as Frequency,
-      weekday: Number(d.weekday),
-      weeks: Number(d.weeks),
-      onlyNew: d.onlyNew === '1',
-      updates: d.updates === '1',
-      subject: t.subject || DEFAULT_MAIL.subject,
-      updateSubject: t.updateSubject || DEFAULT_MAIL.updateSubject,
-      body,
-    }),
-  ]
+  return upgrade({
+    id: 'legacy',
+    name: 'Zusammenfassung',
+    extra: (d.recipients ?? '').split(/[\s,;]+/).filter(Boolean),
+    frequency: d.frequency as Frequency,
+    weekday: Number(d.weekday),
+    weeks: Number(d.weeks),
+    updates: d.updates === '1',
+    subject: t.subject || DEFAULT_MAILS.schedule.subject,
+    updateSubject: t.updateSubject,
+    body,
+  })
 }
 
 export async function saveMails(mails: AutoMail[]) {
@@ -125,11 +146,11 @@ export async function recipientsOf(mail: AutoMail) {
   return [...new Set([...chosen, ...mail.extra])]
 }
 
-/** true, wenn eine eingeschaltete automatische E-Mail Abwesenheiten enthält und Empfänger hat */
+/** true, wenn das Sekretariat o. a. Abwesenheiten automatisch per E-Mail bekommt (regelmäßig oder bei Änderungen) */
 export async function absenceDigestActive() {
-  const mails = await loadMails()
-  for (const m of mails) {
-    if (m.frequency !== 'off' && covers(m, 'absences') && (await recipientsOf(m)).length) return true
+  for (const m of await loadMails()) {
+    const on = m.kind === 'change' ? m.topics.includes('absences') : m.frequency !== 'off' && covers(m, 'absences')
+    if (on && (await recipientsOf(m)).length) return true
   }
   return false
 }
@@ -160,8 +181,8 @@ type Block = { title: string; lines: string[] }
 
 const uses = (m: AutoMail, ...keys: string[]) => keys.some((k) => `${m.subject}\n${m.body}`.includes(`{${k}}`))
 
-/** Enthält die E-Mail Abwesenheiten bzw. Termine? (für Aktualisierungen) */
-function covers(m: AutoMail, topic: 'absences' | 'appointments') {
+/** Enthält der Text Abwesenheiten bzw. Termine? */
+function covers(m: AutoMail, topic: Topic) {
   return topic === 'absences'
     ? uses(m, 'abwesenheiten', 'neue_abwesenheiten', 'abwesend_heute', 'neu')
     : uses(m, 'termine')
@@ -170,6 +191,7 @@ function covers(m: AutoMail, topic: 'absences' | 'appointments') {
 /** Ersetzt {platzhalter} in Text und HTML; Listen-Platzhalter werden zu Überschrift + Aufzählung. */
 function render(template: string, values: Record<string, string>, blocks: Partial<Record<BlockKey, Block>>) {
   const parts = template.split(/(\{\w+\})/)
+  const isBlock = (p: string | undefined) => !!p && /^\{\w+\}$/.test(p) && p.slice(1, -1) in BLOCK_PLACEHOLDERS
   let text = ''
   let html = ''
   parts.forEach((part, i) => {
@@ -186,11 +208,9 @@ function render(template: string, values: Record<string, string>, blocks: Partia
     } else {
       text += part
       // Zeilenumbrüche direkt an Listen grenzen sonst doppelt an
-      const prevBlock = i > 0 && /^\{(\w+)\}$/.test(parts[i - 1]) && parts[i - 1].slice(1, -1) in BLOCK_PLACEHOLDERS
-      const nextBlock = i + 1 < parts.length && parts[i + 1].slice(1, -1) in BLOCK_PLACEHOLDERS
       let h = part
-      if (prevBlock) h = h.replace(/^\n/, '')
-      if (nextBlock) h = h.replace(/\n$/, '')
+      if (isBlock(parts[i - 1])) h = h.replace(/^\n/, '')
+      if (isBlock(parts[i + 1])) h = h.replace(/\n$/, '')
       html += esc(h).replace(/\n/g, '<br>')
     }
   })
@@ -265,40 +285,30 @@ export async function buildMail(mail: AutoMail, state: MailState, origin: string
     bis: formatDate(until),
     wochen: String(mail.weeks),
     neu: String(fresh.length),
-    aenderung: change ?? '',
+    aenderung: change ?? 'Beispiel: Anna Muster: Urlaub 02.11.–03.11. eingetragen',
     link: `${origin}/uebersicht`,
   }
-  const subject = render(change ? mail.updateSubject : mail.subject, values, {}).text.replace(/\s+/g, ' ').trim()
-  // Aktualisierung ohne {aenderung} im Text: Änderung oben einfügen
-  const body = change && !mail.body.includes('{aenderung}') ? `Änderung: {aenderung}\n\n${mail.body}` : mail.body
+  const subject = render(mail.subject, values, {}).text.replace(/\s+/g, ' ').trim()
+  // Änderung, die weder im Betreff noch im Text vorkommt, oben einfügen
+  const body = change && !uses(mail, 'aenderung') ? `Änderung: {aenderung}\n\n${mail.body}` : mail.body
   const out = render(body, values, blocks)
   const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.45">${out.html}</div>`
-  return { subject, text: out.text, html, fresh: fresh.length }
+  return { subject, text: out.text, html }
 }
 
-// --- Zeitplan -------------------------------------------------------------------------
+// --- Versand nach Zeitplan bzw. bei Änderungen --------------------------------------
 
 const berlinDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date(iso))
 
-async function runOne(mail: AutoMail, state: MailState, origin: string, force: boolean) {
-  const today = todayIso()
-  if (!force) {
-    if (mail.frequency === 'off') return 'aus'
-    const day = weekday(today)
-    if (day > 5 || (mail.frequency === 'weekly' && day !== mail.weekday)) return 'heute nicht fällig'
-    if (state.lastSent && berlinDay(state.lastSent) === today) return 'heute schon gesendet'
-  }
+async function deliver(mail: AutoMail, state: MailState, origin: string, opts: { test?: boolean; change?: string }) {
   try {
-    const out = await buildMail(mail, state, origin)
-    if (!force && mail.onlyNew && state.lastSent && !out.fresh) {
-      await setState(mail.id, 'lastResult', `${formatDateTime(new Date())}: nichts Neues, nicht gesendet`)
-      return 'nichts Neues'
-    }
+    const out = await buildMail(mail, state, origin, opts.change)
     const to = await recipientsOf(mail)
     await send(to, out.subject, out.text, out.html)
     // Test-E-Mails zählen nicht als letzte Zusendung („neu seit …“ bleibt erhalten)
-    if (!force) await setState(mail.id, 'lastSent', new Date().toISOString())
-    await setState(mail.id, 'lastResult', `${formatDateTime(new Date())}: ${force ? 'Test gesendet' : 'gesendet'} an ${to.join(', ')}`)
+    if (!opts.test) await setState(mail.id, 'lastSent', new Date().toISOString())
+    const what = opts.test ? 'Test gesendet' : opts.change ? `gesendet (${opts.change})` : 'gesendet'
+    await setState(mail.id, 'lastResult', `${formatDateTime(new Date())}: ${what} an ${to.join(', ')}`)
     return 'gesendet'
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -307,35 +317,34 @@ async function runOne(mail: AutoMail, state: MailState, origin: string, force: b
   }
 }
 
-/** Alle fälligen automatischen E-Mails senden (täglicher Cron). Mit id nur diese, sofort als Test. */
+/** Fällige regelmäßige E-Mails senden (täglicher Cron). Mit testId nur diese, sofort. */
 export async function runMails(origin: string, testId?: string) {
   const [mails, states] = await Promise.all([loadMails(), loadMailStates()])
+  const today = todayIso()
   const result: Record<string, string> = {}
   for (const m of mails) {
-    if (testId && m.id !== testId) continue
-    result[m.name] = await runOne(m, states[m.id] ?? { lastSent: null, lastResult: null }, origin, !!testId)
+    const state = states[m.id] ?? { lastSent: null, lastResult: null }
+    if (testId) {
+      if (m.id === testId) result[m.name] = await deliver(m, state, origin, { test: true })
+      continue
+    }
+    if (m.kind !== 'schedule' || m.frequency === 'off') continue
+    const day = weekday(today)
+    if (day > 5 || (m.frequency === 'weekly' && day !== m.weekday)) continue
+    if (state.lastSent && berlinDay(state.lastSent) === today) continue
+    // noch keine Empfänger ausgewählt
+    if (!(await recipientsOf(m)).length) continue
+    result[m.name] = await deliver(m, state, origin, {})
   }
   return result
 }
 
-/**
- * Aktualisierung nach einer Änderung (Abwesenheit oder Termin eingetragen/gelöscht) an alle E-Mails, die das Thema
- * enthalten, Aktualisierungen eingeschaltet haben und schon einmal planmäßig verschickt wurden.
- */
-export async function sendUpdate(origin: string, topic: 'absences' | 'appointments', change: string) {
+/** E-Mails „bei Änderungen“ sofort senden, wenn eine Abwesenheit oder ein Termin eingetragen oder gelöscht wurde. */
+export async function sendUpdate(origin: string, topic: Topic, change: string) {
   const [mails, states] = await Promise.all([loadMails(), loadMailStates()])
   for (const m of mails) {
-    const state = states[m.id]
-    if (!m.updates || m.frequency === 'off' || !state?.lastSent || !covers(m, topic)) continue
-    try {
-      const to = await recipientsOf(m)
-      if (!to.length) continue
-      const out = await buildMail(m, state, origin, change)
-      await send(to, out.subject, out.text, out.html)
-      await setState(m.id, 'lastResult', `${formatDateTime(new Date())}: Aktualisierung gesendet (${change})`)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      await setState(m.id, 'lastResult', `${formatDateTime(new Date())}: Fehler bei Aktualisierung – ${msg}`)
-    }
+    if (m.kind !== 'change' || !m.topics.includes(topic)) continue
+    if (!(await recipientsOf(m)).length) continue
+    await deliver(m, states[m.id] ?? { lastSent: null, lastResult: null }, origin, { change })
   }
 }
