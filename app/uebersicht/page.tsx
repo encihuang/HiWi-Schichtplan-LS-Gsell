@@ -88,8 +88,9 @@ const GROUPS: { title: string; roles: Role[] }[] = [
 function MailAll({ emails, label = 'E-Mail an alle' }: { emails: string[]; label?: string }) {
   const to = emails.filter(Boolean)
   if (!to.length) return null
+  // Semikolon statt Komma: Outlook (am Lehrstuhl im Einsatz) trennt Empfänger in mailto-Links sonst nicht
   return (
-    <a href={`mailto:${to.join(',')}`} className="text-sm text-lmu underline hover:text-lmu-darker">
+    <a href={`mailto:${to.join(';')}`} className="text-sm text-lmu underline hover:text-lmu-darker">
       {label}
     </a>
   )
