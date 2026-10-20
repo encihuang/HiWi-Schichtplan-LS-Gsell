@@ -11,6 +11,7 @@ import { DateExceptions } from '@/components/date-exceptions'
 import { SpecialTasks } from '@/components/special-tasks'
 import { Appointments } from '@/components/appointments'
 import { AbsencesPanel } from '@/components/absences-panel'
+import { DownloadIcon } from '@/components/download-icon'
 import { DailyPlan } from '@/components/daily-plan'
 import { CalcTable } from '@/components/calc-table'
 import { LinkPending } from '@/components/link-pending'
@@ -87,11 +88,11 @@ export default async function PlanPage({
               {others ? 'Planungsmodus beenden' : 'Planungsmodus'}
             </SubmitButton>
           </form>
-          <a href={`/export/${period.id}/pdf`} className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
-            PDF herunterladen
+          <a href={`/export/${period.id}/pdf`} className="inline-flex items-center gap-1.5 rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+            <DownloadIcon /> PDF herunterladen
           </a>
-          <a href={`/export/${period.id}/xlsx`} className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
-            Excel herunterladen
+          <a href={`/export/${period.id}/xlsx`} className="inline-flex items-center gap-1.5 rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+            <DownloadIcon /> Excel herunterladen
           </a>
           <Link href="/kalender" className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
             Kalender abonnieren
@@ -159,6 +160,7 @@ export default async function PlanPage({
                 exceptions={exceptions}
                 extras={extras}
                 closed={closed}
+                appointments={appointments}
                 names={names}
                 meId={me.id}
                 planning={others}
@@ -171,7 +173,7 @@ export default async function PlanPage({
             people={people}
           />
         ) : (
-          <DailyPlan period={period} slots={daily} closed={closed} names={names} meId={me.id} canEditOthers={others} people={people} />
+          <DailyPlan period={period} slots={daily} closed={closed} appointments={appointments} names={names} meId={me.id} canEditOthers={others} people={people} />
         )}
       </section>
 

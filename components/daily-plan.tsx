@@ -1,16 +1,18 @@
 import { assignDaily, toggleDaily } from '@/app/actions'
-import type { ClosedDay, DailySlot, Period } from '@/lib/data'
+import type { Appointment, ClosedDay, DailySlot, Period } from '@/lib/data'
 import { addDays, eachDay, formatDate, formatDateTime, MONTHS, WEEKDAYS_SHORT, weekday } from '@/lib/dates'
 import { SlotButton, type SlotState } from './slot-button'
 import { StaffSelect, type Person } from './staff-select'
+import { appointmentsByDate, DayAppointments } from './day-appointments'
 
 /** Kalender Mo–Fr je Monat; jeder Werktag hat eine Person. */
 export function DailyPlan({
-  period, slots, closed, names, meId, canEditOthers, people,
+  period, slots, closed, appointments, names, meId, canEditOthers, people,
 }: {
   period: Period
   slots: DailySlot[]
   closed: ClosedDay[]
+  appointments: Appointment[]
   names: Record<number, string>
   meId: number
   canEditOthers: boolean
@@ -18,6 +20,7 @@ export function DailyPlan({
 }) {
   const bySlot = new Map(slots.map((s) => [s.date, s]))
   const byClosed = new Map(closed.map((c) => [c.date, c.name]))
+  const byDate = appointmentsByDate(appointments)
   const days = eachDay(period.start_date, period.end_date)
   const months = [...new Set(days.map((d) => d.slice(0, 7)))]
 
@@ -50,14 +53,17 @@ export function DailyPlan({
                   if (!inside) return <div key={d} className="hidden sm:block" />
                   const holiday = byClosed.get(d)
                   const label = (
-                    <span className="text-xs tabular-nums opacity-70">
-                      <span className="sm:hidden">{WEEKDAYS_SHORT[i]}, </span>
-                      {formatDate(d).slice(0, 6)}
+                    <span className="flex min-w-0 flex-col items-start sm:items-stretch">
+                      <span className="text-xs tabular-nums opacity-70">
+                        <span className="sm:hidden">{WEEKDAYS_SHORT[i]}, </span>
+                        {formatDate(d).slice(0, 6)}
+                      </span>
+                      <DayAppointments items={byDate.get(d) ?? []} />
                     </span>
                   )
                   if (holiday) {
                     return (
-                      <div key={d} className="flex h-12 items-center justify-between rounded border-2 border-transparent bg-neutral-50 px-3 text-neutral-400 sm:h-16 sm:flex-col sm:justify-center sm:px-1 sm:text-center">
+                      <div key={d} className="flex min-h-12 items-center justify-between rounded border-2 border-transparent bg-neutral-50 px-3 py-1 text-neutral-400 sm:min-h-16 sm:flex-col sm:justify-center sm:px-1 sm:text-center">
                         {label}
                         <span className="text-[11px] leading-tight">{holiday}</span>
                       </div>
@@ -66,7 +72,7 @@ export function DailyPlan({
                   const slot = bySlot.get(d)
                   if (canEditOthers) {
                     return (
-                      <div key={d} className="flex h-12 items-center justify-between gap-2 rounded border border-neutral-200 px-2 sm:h-16 sm:flex-col sm:items-stretch sm:justify-center sm:gap-1">
+                      <div key={d} className="flex min-h-12 items-center justify-between gap-2 rounded border border-neutral-200 px-2 py-1 sm:min-h-16 sm:flex-col sm:items-stretch sm:justify-center sm:gap-1">
                         {label}
                         <StaffSelect
                           action={assignDaily}
@@ -93,7 +99,7 @@ export function DailyPlan({
                       <input type="hidden" name="date" value={d} />
                       <SlotButton
                         state={state}
-                        className="flex h-12 items-center justify-between px-3 leading-tight sm:h-16 sm:flex-col sm:justify-center sm:px-2"
+                        className="flex min-h-12 items-center justify-between px-3 py-1 leading-tight sm:min-h-16 sm:flex-col sm:justify-center sm:px-2"
                       >
                         {label}
                         <span
