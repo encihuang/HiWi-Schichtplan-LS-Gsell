@@ -9,11 +9,14 @@ import {
 import { absenceRange } from '@/lib/absence-mail'
 import { addDays, formatDate, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
 import { currentStaff } from '@/lib/session'
+import { DownloadIcon } from '@/components/download-icon'
 
 export const dynamic = 'force-dynamic'
 
 const WEEKS = 4
 const MAX_WEEKS = 60
+/** höchstens so viele Zeiträume auf einmal (zwei Studienjahre) */
+const MAX_PERIODS = 8
 
 function Appointments({ items, large = false }: { items: Appointment[]; large?: boolean }) {
   if (!items.length) return null
@@ -120,7 +123,7 @@ function StaffGroup({ title, people }: { title: string; people: Staff[] }) {
 
 const mondayOf = (d: string) => addDays(d, 1 - weekday(d))
 
-const exportLink = 'rounded border border-lmu bg-white px-2.5 py-1 text-sm text-lmu-darker hover:bg-lmu-light'
+const exportLink = 'inline-flex items-center gap-1.5 rounded border border-lmu bg-white px-2.5 py-1 text-sm text-lmu-darker hover:bg-lmu-light'
 
 /** PDF und Excel je Zeitraum des Studienjahrs – wie im Schichtplan nur mit Anmeldung (nicht für wiss. Mitarbeiter:innen) */
 function Downloads({ periods, allowed, loggedIn, today }: {
@@ -132,7 +135,9 @@ function Downloads({ periods, allowed, loggedIn, today }: {
   if (!periods.length) return null
   return (
     <section className="no-print">
-      <h2 className="text-lg font-semibold text-lmu-darker">Schichtplan herunterladen</h2>
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-lmu-darker">
+        <DownloadIcon className="h-5 w-5" /> Schichtplan herunterladen
+      </h2>
       {!allowed ? (
         <p className="mt-1 text-sm text-neutral-600">
           {loggedIn ? (
@@ -161,8 +166,8 @@ function Downloads({ periods, allowed, loggedIn, today }: {
                   </span>
                 </span>
                 <span className="flex gap-2">
-                  <a href={`/export/${p.id}/pdf`} className={exportLink}>PDF</a>
-                  <a href={`/export/${p.id}/xlsx`} className={exportLink}>Excel</a>
+                  <a href={`/export/${p.id}/pdf`} className={exportLink}><DownloadIcon /> PDF</a>
+                  <a href={`/export/${p.id}/xlsx`} className={exportLink}><DownloadIcon /> Excel</a>
                 </span>
               </li>
             )
@@ -176,15 +181,20 @@ function Downloads({ periods, allowed, loggedIn, today }: {
 export default async function Overview({ searchParams }: { searchParams: Promise<{ wochen?: string; alle?: string }> }) {
   const params = await searchParams
   const today = todayIso()
-  // „Gesamter Zeitraum“: laufender Zeitraum (sonst der nächste) von Anfang bis Ende
-  const [period] = await query<Period>(
-    'select * from periods where end_date >= $1 order by start_date limit 1',
-    [today],
+  // „Gesamter Zeitraum“: laufender Zeitraum (sonst der nächste) von Anfang bis Ende; alle=2, 3, … nimmt die
+  // folgenden Zeiträume dazu (z. B. die vorlesungsfreie Zeit)
+  const count = Math.min(MAX_PERIODS, Math.max(0, Math.round(Number(params.alle)) || 0))
+  const upcoming = await query<Period>(
+    'select * from periods where end_date >= $1 order by start_date limit $2',
+    [today, Math.max(1, count + 1)],
   )
-  const all = params.alle === '1' && !!period
+  const period = upcoming[0]
+  const all = count > 0 && !!period
+  const lastShown = all ? upcoming[Math.min(count, upcoming.length) - 1] : undefined
+  const next = all && count < MAX_PERIODS ? upcoming[count] : undefined
   const weeks = Math.min(MAX_WEEKS, Math.max(WEEKS, Math.round(Number(params.wochen)) || WEEKS))
   const monday = all ? mondayOf(period.start_date < today ? period.start_date : today) : mondayOf(today)
-  const end = all ? period.end_date : addDays(monday, weeks * 7 - 1)
+  const end = lastShown ? lastShown.end_date : addDays(monday, weeks * 7 - 1)
   const absencesUntil = all ? end : addDays(today, Math.max(8 * 7, weeks * 7))
   const [days, everyone, absences, me, yearPeriods] = await Promise.all([
     loadDays(monday, end), listStaff(true), listAbsences(today, absencesUntil), currentStaff(),
@@ -234,7 +244,11 @@ export default async function Overview({ searchParams }: { searchParams: Promise
 
       <section>
         <h2 className="text-lg font-semibold text-lmu-darker">
-          {all ? `${PERIOD_LABELS[period.kind]} (${formatDate(period.start_date)} – ${formatDate(period.end_date)})` : `Die nächsten ${weeks} Wochen`}
+          {all && lastShown
+            ? lastShown.id === period.id
+              ? `${PERIOD_LABELS[period.kind]} (${formatDate(period.start_date)} – ${formatDate(period.end_date)})`
+              : `${PERIOD_LABELS[period.kind]} bis ${PERIOD_LABELS[lastShown.kind]} (${formatDate(period.start_date)} – ${formatDate(lastShown.end_date)})`
+            : `Die nächsten ${weeks} Wochen`}
         </h2>
         <div className="mt-2">
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-5">
@@ -277,6 +291,11 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           {!all && period && (
             <Link href="/uebersicht?alle=1" scroll={false} className="rounded border border-lmu bg-white px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
               Gesamten Zeitraum anzeigen ({PERIOD_LABELS[period.kind]} bis {formatDate(period.end_date)})
+            </Link>
+          )}
+          {next && (
+            <Link href={`/uebersicht?alle=${count + 1}`} scroll={false} className="rounded border border-lmu bg-white px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+              + {PERIOD_LABELS[next.kind]} (bis {formatDate(next.end_date)})
             </Link>
           )}
           {expanded && (

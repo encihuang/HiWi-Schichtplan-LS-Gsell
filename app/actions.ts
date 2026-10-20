@@ -9,7 +9,7 @@ import { clampMail, DEFAULT_ABSENCE_TEXTS, loadMails, runMails, saveMails, sendU
 import { DEFAULT_MAILS, type Topic } from '@/lib/mail-shared'
 import { encrypt, setSetting } from '@/lib/settings'
 import {
-  ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, calendarToken, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
+  ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
   type AbsenceKind, type AvailabilityStatus, type DutyKind, type Role,
 } from '@/lib/data'
 import { formatDate, PERIOD_KINDS, todayIso, WEEKDAYS, weekday, wsLecture, yearLabel, isLecture } from '@/lib/dates'
@@ -52,10 +52,12 @@ export async function login(_: string | null, fd: FormData) {
 }
 
 /** Kalender-Abo: neue geheime Adresse; die alte funktioniert danach nicht mehr. */
-export async function renewCalendarToken() {
-  const me = await requireStaff()
-  await calendarToken(me.id, true)
-  revalidatePath('/kalender')
+/** Kalender-Adresse einer Person ungültig machen (Einstellungen); beim nächsten Öffnen von „Kalender“ gibt es eine neue */
+export async function resetCalendarToken(fd: FormData) {
+  await requireAdmin()
+  const [s] = await query<{ name: string }>('update staff set calendar_token = null where id = $1 returning name', [num(fd, 'id')])
+  if (s) await addLog(null, await actorName(), `Kalender-Adresse von ${s.name} zurückgesetzt`)
+  revalidatePath('/', 'layout')
 }
 
 // --- Planungsmodus -------------------------------------------------------------

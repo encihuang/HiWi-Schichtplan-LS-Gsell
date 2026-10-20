@@ -9,7 +9,7 @@ import { canStoreSecrets } from '@/lib/settings'
 import { MailSettings } from '@/components/mail-settings'
 import { formatDate, formatDateTime, LMU_VORLESUNGSZEITEN_URL, PERIOD_LABELS, yearLabel } from '@/lib/dates'
 import {
-  addAppointment, addClosedDay, addYear, deleteAppointment, deleteStaff, deleteYear, removeClosedDay, saveStaff, saveYearDates,
+  addAppointment, addClosedDay, resetCalendarToken, addYear, deleteAppointment, deleteStaff, deleteYear, removeClosedDay, saveStaff, saveYearDates,
 } from '../actions'
 
 export const dynamic = 'force-dynamic'
@@ -138,6 +138,28 @@ export default async function Settings() {
             </form>
           </div>
         </div>
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold text-lmu-darker">Kalender-Abos: Adresse geheim halten</h2>
+        <p className="text-sm text-neutral-600">
+          Wer die Adresse kennt, sieht den Schichtplan – auch ohne Passwort. Falls sie in falsche Hände geraten ist,
+          setze sie zurück; bestehende Abos funktionieren dann nicht mehr und müssen neu eingerichtet werden. Die Person
+          bekommt beim nächsten Öffnen von „Kalender“ eine neue Adresse.
+        </p>
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {staff.filter((s) => s.active).map((s) => (
+            <li key={s.id} className="flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 text-sm shadow-sm">
+              <span className="min-w-0 truncate font-medium">{s.name}</span>
+              <form action={resetCalendarToken}>
+                <input type="hidden" name="id" value={s.id} />
+                <button className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 hover:bg-red-50">
+                  Adresse zurücksetzen
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <MailSettings

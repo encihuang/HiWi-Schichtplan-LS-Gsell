@@ -1,8 +1,9 @@
 import { dateException } from '@/app/actions'
-import { DUTY_LABELS, type ClosedDay, type DateException, type DateExtra, type Duty, type Period } from '@/lib/data'
+import { DUTY_LABELS, type Appointment, type ClosedDay, type DateException, type DateExtra, type Duty, type Period } from '@/lib/data'
 import { addDays, eachDay, formatDate, MONTHS, todayIso, WEEKDAYS_SHORT, weekday } from '@/lib/dates'
 import { SubmitButton } from './slot-button'
 import { StaffSelect, type Person } from './staff-select'
+import { appointmentsByDate, DayAppointments } from './day-appointments'
 
 function Action({ period, date, op, staff, person, label, tone }: {
   period: number; date: string; op: string; staff?: number; person?: number; label: string; tone: 'red' | 'green' | 'grey'
@@ -26,19 +27,21 @@ function Action({ period, date, op, staff, person, label, tone }: {
 
 /** Einzelne Tage der Vorlesungszeit: regulärer Dienst je Datum, Ausfälle und Vertretungen. */
 export function DateExceptions({
-  period, duties, exceptions, extras, closed, names, meId, planning, people,
+  period, duties, exceptions, extras, closed, appointments, names, meId, planning, people,
 }: {
   period: Period
   duties: Duty[]
   exceptions: DateException[]
   extras: DateExtra[]
   closed: ClosedDay[]
+  appointments: Appointment[]
   names: Record<number, string>
   meId: number
   planning: boolean
   people: Person[]
 }) {
   const byClosed = new Map(closed.map((c) => [c.date, c.name]))
+  const byDate = appointmentsByDate(appointments)
   const today = todayIso()
   const days = eachDay(period.start_date, period.end_date)
   const months = [...new Set(days.map((d) => d.slice(0, 7)))]
@@ -80,6 +83,7 @@ export function DateExceptions({
                         <div className="text-xs tabular-nums text-neutral-500">
                           <span className="font-semibold sm:hidden">{WEEKDAYS_SHORT[i]}, </span>
                           {formatDate(d).slice(0, 6)}
+                          <DayAppointments items={byDate.get(d) ?? []} className="mt-0.5" />
                         </div>
                       )
                       const holiday = byClosed.get(d)
