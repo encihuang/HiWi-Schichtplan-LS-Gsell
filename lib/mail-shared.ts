@@ -57,7 +57,7 @@ export const BLOCK_PLACEHOLDERS = {
   neue_abwesenheiten: 'seit der letzten E-Mail neu eingetragene Abwesenheiten',
   abwesend_heute: 'wer heute abwesend ist',
   termine: 'Termine für alle (Vorschau)',
-  dienste: 'Dienste der Hilfskräfte (nächste 7 Tage)',
+  dienste: 'Dienste, Vorlesungen und Aufgaben der Hilfskräfte mit Vertretungen (nächste 7 Tage)',
 } as const
 
 export type BlockKey = keyof typeof BLOCK_PLACEHOLDERS

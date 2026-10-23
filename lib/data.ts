@@ -15,6 +15,8 @@ export type Staff = {
   active: boolean
   email: string
   role: Role
+  /** Erinnerung per E-Mail: Werktage vor dem Dienst (0 = am selben Morgen), null = aus */
+  reminder_days: number | null
 }
 export type Role = 'hiwi' | 'wimi' | 'rat' | 'sekretariat' | 'prof'
 export const ROLE_LABELS: Record<Role, string> = {
@@ -50,6 +52,15 @@ export type Lecture = {
   updated_by: string | null
   updated_at: string | null
 }
+/** Vorlesung/Aufgabe fällt an einem Datum für die eingeteilte Person aus; substitute_id übernimmt (oder offen) */
+export type LectureException = { lecture_id: number; date: string; substitute_id: number | null; updated_by: string; updated_at: string }
+/** Vorlesung/Aufgabe an einem Datum: staff_id = wer sie tatsächlich übernimmt (null = offen) */
+export type DayLecture = Lecture & {
+  /** regulär eingeteilte Person (Wochenplan) */
+  regular_id: number | null
+  /** true, wenn die reguläre Person ausfällt */
+  absent: boolean
+}
 export type DailySlot = { date: string; staff_id: number; updated_by: string; updated_at: string }
 /** Termin für alle Hilfskräfte (z. B. Teamsitzung), im Planungsmodus angelegt */
 export type Appointment = { id: number; date: string; time: string; title: string; note: string; created_by: string }
@@ -68,7 +79,7 @@ export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
 
 export async function listStaff(onlyActive = false) {
   const rows = await query<Staff>(
-    `select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role
+    `select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role, reminder_days
      from staff ${onlyActive ? 'where active' : ''} order by name`,
   )
   return rows
@@ -76,7 +87,7 @@ export async function listStaff(onlyActive = false) {
 
 export async function getStaff(id: number) {
   const [s] = await query<Staff>(
-    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role from staff where id = $1',
+    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role, reminder_days from staff where id = $1',
     [id],
   )
   return s
@@ -134,6 +145,33 @@ export const listLectures = (periodId: number) =>
     'select id, name, weekday, time, staff_id, updated_by, updated_at from lectures where period_id = $1 order by name, weekday',
     [periodId],
   )
+
+export const listLectureExceptions = (periodId: number) =>
+  query<LectureException>(
+    `select e.lecture_id, e.date, e.substitute_id, e.updated_by, e.updated_at
+     from lecture_exceptions e join lectures l on l.id = e.lecture_id where l.period_id = $1 order by e.date`,
+    [periodId],
+  )
+
+/** Vorlesungen/Aufgaben an Datum d mit Ausfällen und Vertretungen */
+export function lecturesOn(d: string, lectures: Lecture[], exceptions: LectureException[]): DayLecture[] {
+  return lectures
+    .filter((l) => l.weekday === weekday(d))
+    .map((l) => {
+      const e = l.staff_id ? exceptions.find((x) => x.lecture_id === l.id && x.date === d) : undefined
+      return { ...l, regular_id: l.staff_id, absent: !!e, staff_id: e ? e.substitute_id : l.staff_id }
+    })
+}
+
+/** Text für eine Vorlesung/Aufgabe an einem Tag, z. B. „Vorlesung Sachenrecht (10–12 Uhr): Anna (Vertretung für Ben)“ */
+export function lectureText(l: DayLecture, names: Record<number, string>) {
+  const title = `${l.name}${l.time ? ` (${l.time})` : ''}`
+  if (l.absent) {
+    const regular = names[l.regular_id!] ?? '?'
+    return l.staff_id ? `${title}: ${names[l.staff_id] ?? '?'} (Vertretung für ${regular})` : `${title}: ${regular} fällt aus, Vertretung offen`
+  }
+  return `${title}: ${l.staff_id ? names[l.staff_id] ?? '?' : 'noch niemand'}`
+}
 
 export const listDaily = (periodId: number) =>
   query<DailySlot>(
@@ -373,7 +411,7 @@ export type DayInfo = {
   closed?: string
   period?: Period
   entries: RosterEntry[]
-  lectures: Lecture[]
+  lectures: DayLecture[]
   appointments: Appointment[]
 }
 
@@ -388,14 +426,14 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
     periods.map(async (p) => {
       const closed = await listClosedDays(p.year_id)
       if (isLecture(p.kind)) {
-        const [duties, exceptions, extras, lectures] = await Promise.all([
-          listDuties(p.id), listExceptions(p.id), listExtras(p.id), listLectures(p.id),
+        const [duties, exceptions, extras, lectures, lexc] = await Promise.all([
+          listDuties(p.id), listExceptions(p.id), listExtras(p.id), listLectures(p.id), listLectureExceptions(p.id),
         ])
         return {
           p,
           closed,
           roster: (d: string) => lectureRoster(d, duties, exceptions, extras, names),
-          lectures: (d: string) => lectures.filter((l) => l.weekday === weekday(d)),
+          lectures: (d: string) => lecturesOn(d, lectures, lexc),
         }
       }
       const slots = await listDaily(p.id)
@@ -404,7 +442,7 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
         closed,
         roster: (d: string): RosterEntry[] =>
           slots.filter((s) => s.date === d).map((s) => ({ staff_id: s.staff_id, label: 'Dienst' })),
-        lectures: (): Lecture[] => [],
+        lectures: (): DayLecture[] => [],
       }
     }),
   )
@@ -442,7 +480,7 @@ export async function calendarToken(staffId: number, renew = false) {
 export async function staffByCalendarToken(token: string) {
   if (!/^[\w-]{16,}$/.test(token)) return undefined
   const [s] = await query<Staff>(
-    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role from staff where calendar_token = $1',
+    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role, reminder_days from staff where calendar_token = $1',
     [token],
   )
   return s

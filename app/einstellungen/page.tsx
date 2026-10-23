@@ -7,6 +7,9 @@ import { isAdmin } from '@/lib/session'
 import { loadAbsenceTexts, loadMailConfig, loadMails, loadMailStates } from '@/lib/mail'
 import { canStoreSecrets } from '@/lib/settings'
 import { MailSettings } from '@/components/mail-settings'
+import { ReminderSettings } from '@/components/reminder-settings'
+import { loadReminderTexts, reminderStatus } from '@/lib/reminders'
+import { REMINDER_OPTIONS } from '@/lib/reminder-shared'
 import { formatDate, formatDateTime, LMU_VORLESUNGSZEITEN_URL, PERIOD_LABELS, yearLabel } from '@/lib/dates'
 import {
   addAppointment, addClosedDay, resetCalendarToken, addYear, deleteAppointment, deleteStaff, deleteYear, removeClosedDay, saveStaff, saveYearDates,
@@ -16,7 +19,7 @@ export const dynamic = 'force-dynamic'
 
 const input = 'w-full min-w-0 rounded border border-neutral-300 px-2 py-1.5 text-sm focus:outline-2 focus:outline-lmu'
 const btn = 'rounded bg-lmu px-3 py-1.5 text-sm font-medium text-white hover:bg-lmu-dark'
-const cols = 'lg:grid-cols-[1.2fr_1.6fr_1.1fr_0.5fr_1fr_1fr_0.4fr_auto]'
+const cols = 'lg:grid-cols-[1.2fr_1.6fr_1.1fr_0.5fr_1fr_1fr_1.3fr_0.4fr_auto]'
 
 /** Eingabefeld mit Beschriftung */
 function Field({ label, wide, className = '', children }: {
@@ -40,12 +43,24 @@ function RoleSelect({ value = 'hiwi' }: { value?: Role }) {
   )
 }
 
+/** Erinnerung vor dem Dienst (nur für Hilfskräfte wirksam) */
+function ReminderSelect({ value = null }: { value?: number | null }) {
+  return (
+    <select name="reminder" defaultValue={value ?? ''} className={input}>
+      {REMINDER_OPTIONS.map(([v, l]) => (
+        <option key={l} value={v ?? ''}>{l}</option>
+      ))}
+    </select>
+  )
+}
+
 const btnGhost = 'rounded px-3 py-1.5 text-sm text-red-700 hover:bg-red-50'
 
 export default async function Settings() {
   if (!(await isAdmin())) redirect('/login?kind=admin&next=/einstellungen')
-  const [staff, years, log, mail, mails, mailStates, absenceTexts] = await Promise.all([
+  const [staff, years, log, mail, mails, mailStates, absenceTexts, reminderTexts, reminderLast] = await Promise.all([
     listStaff(), listYears(), listLog(null, 15), loadMailConfig(), loadMails(), loadMailStates(), loadAbsenceTexts(),
+    loadReminderTexts(), reminderStatus(),
   ])
   const yearData = await Promise.all(
     years.map(async (y) => {
@@ -79,6 +94,11 @@ export default async function Settings() {
                   <span className="text-sm text-neutral-500">{ROLE_LABELS[s.role]}</span>
                   {isHiwi(s) && <span className="text-sm text-neutral-500">{s.hours_per_week} h/Woche</span>}
                   {s.email && <span className="hidden text-sm text-neutral-500 sm:inline">{s.email}</span>}
+                  {isHiwi(s) && s.reminder_days !== null && (
+                    <span className="rounded bg-lmu-light px-1.5 text-xs text-lmu-darker">
+                      Erinnerung: {REMINDER_OPTIONS.find(([v]) => v === s.reminder_days)?.[1]}
+                    </span>
+                  )}
                   {!s.active && <span className="rounded bg-neutral-100 px-1.5 text-xs text-neutral-600">inaktiv</span>}
                 </summary>
                 <div className="flex flex-col gap-2 border-t border-neutral-100 bg-neutral-50/60 px-3 py-3 lg:flex-row lg:items-end">
@@ -104,6 +124,9 @@ export default async function Settings() {
                     </Field>
                     <Field label="Ende">
                       <input type="date" name="end" defaultValue={s.end_date ?? ''} className={input} />
+                    </Field>
+                    <Field label="Erinnerung vor dem Dienst" wide>
+                      <ReminderSelect value={s.reminder_days} />
                     </Field>
                     <button className={`${btn} col-span-2 lg:order-7 lg:col-span-1`}>Speichern</button>
                   </form>
@@ -133,6 +156,9 @@ export default async function Settings() {
               </Field>
               <Field label="Ende">
                 <input type="date" name="end" className={input} />
+              </Field>
+              <Field label="Erinnerung vor dem Dienst" wide>
+                <ReminderSelect />
               </Field>
               <button className={`${btn} col-span-2 lg:order-7 lg:col-span-1 lg:mr-[7.5rem]`}>Hinzufügen</button>
             </form>
@@ -170,6 +196,13 @@ export default async function Settings() {
         absenceTexts={absenceTexts}
         canStoreSecrets={canStoreSecrets()}
         passwordReadable={mail.password !== null}
+      />
+
+      <ReminderSettings
+        texts={reminderTexts}
+        hiwis={staff.filter((s) => s.active && isHiwi(s))}
+        status={reminderLast}
+        defaultTo={mail.smtp.from.match(/[^\s<>]+@[^\s<>]+/)?.[0] ?? ''}
       />
 
       {/* Studienjahre */}

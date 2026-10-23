@@ -3,7 +3,7 @@ import { MailLink } from '@/components/mail-link'
 import { query } from '@/lib/db'
 import {
   ABSENCE_LABELS, canSeePlan, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
-  type Appointment,
+  type Appointment, lectureText, type DayLecture,
   type Period, type Role, type RosterEntry, type Staff,
 } from '@/lib/data'
 import { absenceRange } from '@/lib/absence-mail'
@@ -31,6 +31,20 @@ function Appointments({ items, large = false }: { items: Appointment[]; large?: 
           <span className="font-semibold">{a.title}</span>
           {a.time && <span> · {a.time}</span>}
           {large && a.note && <span className="block text-xs text-amber-900/80">{a.note}</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** Vorlesungen Prof. Gsell und weitere Aufgaben an einem Tag (mit Vertretungen) */
+function Tasks({ items, names, large = false }: { items: DayLecture[]; names: Record<number, string>; large?: boolean }) {
+  if (!items.length) return null
+  return (
+    <ul className={`${large ? 'mt-3 space-y-0.5 text-sm' : 'mt-1.5 space-y-0.5 text-[11px] leading-tight'} text-neutral-600`}>
+      {items.map((l) => (
+        <li key={l.id} className={l.absent && !l.staff_id ? 'font-semibold text-red-700' : ''}>
+          {lectureText(l, names)}
         </li>
       ))}
     </ul>
@@ -206,6 +220,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const byId = new Map(everyone.map((s) => [s.id, s]))
   // auch inaktive Personen anzeigen, falls noch eingeteilt
   for (const s of await listStaff()) if (!byId.has(s.id)) byId.set(s.id, s)
+  const nameMap = Object.fromEntries([...byId].map(([id, s]) => [id, s.name]))
   const todayInfo = days.find((d) => d.date === today)
   // Sonderaufgaben des laufenden Zeitraums
   const currentPeriod = todayInfo?.period ?? days.find((d) => d.period)?.period
@@ -238,6 +253,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           ) : (
             <People entries={todayInfo.entries} byId={byId} large />
           )}
+          <Tasks items={todayInfo?.lectures ?? []} names={nameMap} large />
           <Appointments items={todayInfo?.appointments ?? []} large />
           <Away items={todayInfo?.absences ?? []} names={byId} large />
         </div>
@@ -276,6 +292,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
                   ) : (
                     <People entries={d.entries} byId={byId} />
                   )}
+                  <Tasks items={d.lectures} names={nameMap} />
                   <Appointments items={d.appointments} />
                   <Away items={d.absences} names={byId} />
                 </div>

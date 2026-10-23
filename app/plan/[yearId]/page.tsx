@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import {
-  calcDaily, calcWeekly, getYear, listAppointments, listAvailability, listClosedDays, listDaily, listDuties, listLectures, listLog,
+  calcDaily, calcWeekly, getYear, listAppointments, listAvailability, listClosedDays, listDaily, listDuties, listLectureExceptions, listLectures, listLog,
   canSeePlan, isHiwi, listExceptions, listExtras, listPeriods, listSpecialTasks, listStaff,
 } from '@/lib/data'
 import { canEditOthers, currentStaff } from '@/lib/session'
@@ -46,7 +46,10 @@ export default async function PlanPage({
 
   const lecture = isLecture(period.kind)
   const none = Promise.resolve([])
-  const [staff, closed, log, others, specialTasks, appointments, weekly, availability, lectures, exceptions, extras, daily] =
+  const [
+    staff, closed, log, others, specialTasks, appointments, weekly, availability, lectures, exceptions, extras, daily,
+    lectureExceptions,
+  ] =
     await Promise.all([
       listStaff(),
       listClosedDays(year.id),
@@ -60,6 +63,7 @@ export default async function PlanPage({
       lecture ? listExceptions(period.id) : none,
       lecture ? listExtras(period.id) : none,
       lecture ? none : listDaily(period.id),
+      lecture ? listLectureExceptions(period.id) : none,
     ])
   const active = staff.filter((s) => s.active && isHiwi(s))
   const calc = lecture ? calcWeekly(period, active, closed, weekly, exceptions, extras) : calcDaily(period, active, closed, daily)
@@ -161,6 +165,8 @@ export default async function PlanPage({
                 extras={extras}
                 closed={closed}
                 appointments={appointments}
+                lectures={lectures}
+                lectureExceptions={lectureExceptions}
                 names={names}
                 meId={me.id}
                 planning={others}

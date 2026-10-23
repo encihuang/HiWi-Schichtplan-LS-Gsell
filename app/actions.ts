@@ -8,6 +8,8 @@ import { after } from 'next/server'
 import { clampMail, DEFAULT_ABSENCE_TEXTS, loadMails, runMails, saveMails, sendUpdate } from '@/lib/mail'
 import { DEFAULT_MAILS, type Topic } from '@/lib/mail-shared'
 import { encrypt, setSetting } from '@/lib/settings'
+import { sendTestReminder } from '@/lib/reminders'
+import { DEFAULT_REMINDER_TEXTS, REMINDER_OPTIONS } from '@/lib/reminder-shared'
 import {
   ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
   type AbsenceKind, type AvailabilityStatus, type DutyKind, type Role,
@@ -357,6 +359,70 @@ export async function dateException(fd: FormData) {
   revalidatePath('/plan', 'layout')
 }
 
+/**
+ * Vorlesung/Aufgabe an einem einzelnen Datum (Vorlesungszeit):
+ * absent = eingeteilte Person kann nicht, present = doch da, cover = Vertretung übernehmen, uncover = abgeben,
+ * substitute = (Planungsmodus) Vertretung festlegen („assignee“, 0 = offen).
+ * absent/present im Planungsmodus auch für andere.
+ */
+export async function lectureException(fd: FormData) {
+  const [self, planning] = await Promise.all([requireShiftActor(), canEditOthers()])
+  const date = isoOrNull(str(fd, 'date'))
+  const op = str(fd, 'op')
+  const [l] = await query<{ id: number; period_id: number; name: string; weekday: number; staff_id: number | null }>(
+    'select id, period_id, name, weekday, staff_id from lectures where id = $1',
+    [num(fd, 'lecture')],
+  )
+  if (!l || !l.staff_id || !date || weekday(date) !== l.weekday) return
+  const period = await getPeriod(l.period_id)
+  if (!period || !workdaysOf(period, await listClosedDays(period.year_id)).includes(date)) return
+  const regular = l.staff_id === self.id ? self : await getStaff(l.staff_id)
+  if (!regular) return
+  const label = `${formatDate(date)}: „${l.name}“`
+
+  if (op === 'absent' || op === 'present') {
+    if (regular.id !== self.id && !planning) return
+    const forWho = regular.id === self.id ? '' : ` (${regular.name})`
+    if (op === 'absent') {
+      const done = await query(
+        `insert into lecture_exceptions (lecture_id, date, updated_by) values ($1, $2, $3) on conflict do nothing returning 1`,
+        [l.id, date, self.name],
+      )
+      if (done.length) await logShift(l.period_id, self.name, `${label} kann nicht (Vertretung gesucht)${forWho}`)
+    } else {
+      const done = await query('delete from lecture_exceptions where lecture_id = $1 and date = $2 returning 1', [l.id, date])
+      if (done.length) await logShift(l.period_id, self.name, `${label} doch da${forWho}`)
+    }
+  } else if (op === 'cover' && self.id !== regular.id) {
+    const done = await query(
+      `update lecture_exceptions set substitute_id = $3, updated_by = $4, updated_at = now()
+       where lecture_id = $1 and date = $2 and substitute_id is null returning 1`,
+      [l.id, date, self.id, self.name],
+    )
+    if (done.length) await logShift(l.period_id, self.name, `${label}: Vertretung für ${regular.name} übernommen`)
+  } else if (op === 'uncover') {
+    const done = await query(
+      `update lecture_exceptions set substitute_id = null, updated_by = $4, updated_at = now()
+       where lecture_id = $1 and date = $2 and substitute_id = $3 returning 1`,
+      [l.id, date, self.id, self.name],
+    )
+    if (done.length) await logShift(l.period_id, self.name, `${label}: Vertretung für ${regular.name} abgegeben`)
+  } else if (op === 'substitute' && planning) {
+    const subId = num(fd, 'assignee')
+    const sub = subId ? await getStaff(subId) : null
+    if ((subId && !sub) || subId === regular.id) return
+    const done = await query(
+      `update lecture_exceptions set substitute_id = $3, updated_by = $4, updated_at = now()
+       where lecture_id = $1 and date = $2 returning 1`,
+      [l.id, date, sub?.id ?? null, self.name],
+    )
+    if (done.length) {
+      await logShift(l.period_id, self.name, sub ? `${label}: ${sub.name} vertritt ${regular.name}` : `${label}: Vertretung für ${regular.name} offen`)
+    }
+  }
+  revalidatePath('/plan', 'layout')
+}
+
 // --- Sonderaufgaben (ohne Datum) ---------------------------------------------
 
 export async function addSpecialTask(fd: FormData) {
@@ -528,12 +594,16 @@ export async function saveStaff(fd: FormData) {
   const active = fd.get('active') === 'on'
   const email = str(fd, 'email')
   const role = (ROLES as string[]).includes(str(fd, 'role')) ? (str(fd, 'role') as Role) : 'hiwi'
+  // Erinnerung vor dem Dienst (nur Hilfskräfte): Werktage vorher, leer = aus
+  const r = str(fd, 'reminder')
+  const reminder = role === 'hiwi' && r !== '' && REMINDER_OPTIONS.some(([v]) => v === Number(r)) ? Number(r) : null
   if (!name) return
   if (email && !EMAIL.test(email)) return
   if (id) {
     await query(
-      'update staff set name = $2, hours_per_week = $3, start_date = $4, end_date = $5, active = $6, email = $7, role = $8 where id = $1',
-      [id, name, hours, start, end, active, email, role],
+      `update staff set name = $2, hours_per_week = $3, start_date = $4, end_date = $5, active = $6, email = $7, role = $8,
+       reminder_days = $9 where id = $1`,
+      [id, name, hours, start, end, active, email, role, reminder],
     )
     await addLog(null, await actorName(), `${name} geändert`)
   } else {
@@ -653,6 +723,26 @@ async function logShift(periodId: number, actor: string, message: string) {
 async function notifyChange(topic: Topic, change: string) {
   const o = await origin()
   after(() => sendUpdate(o, topic, change))
+}
+
+/** Text der Erinnerung an Hilfskräfte vor dem Dienst */
+export async function saveReminderTexts(fd: FormData) {
+  await requireAdmin()
+  for (const k of Object.keys(DEFAULT_REMINDER_TEXTS)) {
+    const v = String(fd.get(k) ?? '').replace(/\r\n/g, '\n').trim()
+    await setSetting(`reminder.${k}`, v || DEFAULT_REMINDER_TEXTS[k as keyof typeof DEFAULT_REMINDER_TEXTS])
+  }
+  await addLog(null, await actorName(), 'Text der Dienst-Erinnerung geändert')
+  revalidatePath('/einstellungen')
+}
+
+/** Nächste Erinnerung einer Hilfskraft testweise an eine Adresse schicken */
+export async function testReminder(fd: FormData) {
+  await requireAdmin()
+  const to = str(fd, 'to')
+  if (!EMAIL.test(to)) return
+  await sendTestReminder(await origin(), num(fd, 'staff'), to)
+  revalidatePath('/einstellungen')
 }
 
 /** Eine automatische E-Mail sofort an ihre Empfänger schicken (zum Testen). */

@@ -132,7 +132,9 @@ export function buildCalendar(
         })
       }
       for (const l of d.lectures) {
-        const who = l.staff_id ? names[l.staff_id] ?? '?' : 'noch offen'
+        const who = l.staff_id
+          ? `${names[l.staff_id] ?? '?'}${l.absent ? ` (Vertretung für ${names[l.regular_id!] ?? '?'})` : ''}`
+          : l.absent ? `Vertretung für ${names[l.regular_id!] ?? '?'} offen` : 'noch offen'
         events.push(lectureEvent(l, d.date, `${l.name}: ${who}`, period))
       }
       continue
@@ -147,7 +149,10 @@ export function buildCalendar(
         description: [period, others.length ? `Ebenfalls im Dienst:\n${others.join('\n')}` : 'Sonst niemand im Dienst.'].join('\n\n'),
       })
     })
-    for (const l of d.lectures.filter((x) => x.staff_id === staffId)) events.push(lectureEvent(l, d.date, l.name, period))
+    for (const l of d.lectures.filter((x) => x.staff_id === staffId)) {
+      const title = l.absent ? `${l.name} (Vertretung für ${names[l.regular_id!] ?? '?'})` : l.name
+      events.push(lectureEvent(l, d.date, title, period))
+    }
   }
 
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '')

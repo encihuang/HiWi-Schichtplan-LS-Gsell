@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer'
 import { absenceRange } from './absence-mail'
 import { APP_TITLE, CHAIR } from './brand'
 import {
-  ABSENCE_LABELS, listAbsences, listAppointments, listStaff, loadDays, ROLE_LABELS, type Absence,
+  ABSENCE_LABELS, lectureText, listAbsences, listAppointments, listStaff, loadDays, ROLE_LABELS, type Absence,
 } from './data'
 import { addDays, formatDate, formatDateTime, todayIso, WEEKDAYS, weekday } from './dates'
 import { query } from './db'
@@ -157,7 +157,7 @@ export async function absenceDigestActive() {
 
 // --- Versand ---------------------------------------------------------------------
 
-async function send(to: string[], subject: string, text: string, html: string) {
+export async function send(to: string[], subject: string, text: string, html: string) {
   const { smtp, password } = await loadMailConfig()
   if (!smtp.host || !smtp.user || !smtp.from) throw new Error('SMTP-Server, Benutzername und Absender fehlen.')
   if (!password) throw new Error('SMTP-Passwort fehlt oder ist nicht mehr entschlüsselbar – bitte neu eingeben.')
@@ -267,15 +267,21 @@ export async function buildMail(mail: AutoMail, state: MailState, origin: string
     const days = await loadDays(today, addDays(today, 6))
     const lines: string[] = []
     const html: string[] = []
+    const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
     for (const d of days) {
       const label = `${WEEKDAYS[weekday(d.date) - 1].slice(0, 2)}, ${formatDate(d.date)}`
+      // Vorlesungen Prof. Gsell und weitere Aufgaben (mit Vertretungen) unter dem Tag
+      const tasks = d.lectures.map((l) => lectureText(l, names))
+      const taskHtml = tasks.length ? `<br><span style="color:#555">${tasks.map(esc).join('<br>')}</span>` : ''
       const other = d.closed ? d.closed : !d.period ? 'kein Zeitraum angelegt' : !d.entries.length ? 'niemand eingeteilt' : null
       if (other) {
-        lines.push(`${label}: ${other}`)
-        html.push(esc(`${label}: ${other}`))
+        lines.push([`${label}: ${other}`, ...tasks.map((t) => `  ${t}`)].join('\n'))
+        html.push(esc(`${label}: ${other}`) + taskHtml)
         continue
       }
-      lines.push(`${label}: ${d.entries.map((e) => `${byId.get(e.staff_id)?.name ?? '?'} (${e.label})`).join(', ')}`)
+      lines.push(
+        [`${label}: ${d.entries.map((e) => `${byId.get(e.staff_id)?.name ?? '?'} (${e.label})`).join(', ')}`, ...tasks.map((t) => `  ${t}`)].join('\n'),
+      )
       // Name als E-Mail-Link an die Person, Betreff mit dem Tag
       const people = d.entries.map((e) => {
         const s = byId.get(e.staff_id)
@@ -285,9 +291,9 @@ export async function buildMail(mail: AutoMail, state: MailState, origin: string
           : name
         return `${link} (${esc(e.label)})`
       })
-      html.push(`${esc(label)}: ${people.join(', ')}`)
+      html.push(`${esc(label)}: ${people.join(', ')}${taskHtml}`)
     }
-    blocks.dienste = { title: 'Dienste der Hilfskräfte (nächste 7 Tage)', lines, html }
+    blocks.dienste = { title: 'Dienste, Vorlesungen und Aufgaben der Hilfskräfte (nächste 7 Tage)', lines, html }
   }
 
   const values: Record<string, string> = {

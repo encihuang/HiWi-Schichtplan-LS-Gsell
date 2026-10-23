@@ -13,6 +13,10 @@ Sekretariat** (Abwesenheiten). Hilfskräfte: **Wer bist du?** → **Studienjahr*
   das eigene LMU-Konto per SMTP; Vercel Cron ruft täglich um 5:00 UTC `/api/cron/digest` auf. E-Mail-Texte
   (Betreff, Einleitung, Schluss, Text der Abwesenheitsmeldung) sind einstellbar; optional geht nach Änderungen an
   Abwesenheiten oder Terminen sofort eine Aktualisierung raus
+- Vorlesungen Prof. Gsell und weitere Aufgaben: an einzelnen Tagen „kann nicht“ und Vertretung wie bei den Diensten;
+  erscheinen in Übersicht, Kalender-Abo und im E-Mail-Platzhalter `{dienste}`
+- Erinnerung an Hilfskräfte vor dem Dienst (Einstellungen, je Person: am Diensttag oder 1–5 Werktage vorher) mit
+  Dienst und Vorlesungen/Aufgaben des Tages; Text einstellbar; Versand über den täglichen Cron
 - Übersicht: „Mehr anzeigen“ (+4 Wochen) und „Gesamten Zeitraum anzeigen“
 - Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin)
 

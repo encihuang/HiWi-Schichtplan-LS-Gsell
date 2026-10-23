@@ -121,6 +121,20 @@ create table if not exists settings (
   key text primary key,
   value text not null
 );
+create table if not exists lecture_exceptions (
+  lecture_id int not null references lectures(id) on delete cascade,
+  date text not null,
+  substitute_id int references staff(id) on delete set null,
+  updated_by text not null,
+  updated_at timestamptz not null default now(),
+  primary key (lecture_id, date)
+);
+create table if not exists reminder_log (
+  staff_id int not null references staff(id) on delete cascade,
+  date text not null,
+  sent_at timestamptz not null default now(),
+  primary key (staff_id, date)
+);
 create table if not exists changelog (
   id serial primary key,
   period_id int references periods(id) on delete cascade,
@@ -152,6 +166,8 @@ const MIGRATIONS = [
   `create unique index if not exists staff_calendar_token on staff (calendar_token)`,
   // Bereiche: studentische Hilfskräfte und übriges Lehrstuhlteam
   `alter table staff add column if not exists role text not null default 'hiwi'`,
+  // Erinnerung per E-Mail vor dem Dienst: Anzahl Werktage vorher (0 = am selben Morgen), null = aus
+  `alter table staff add column if not exists reminder_days int`,
   // Ansprechpartner/Support (weekly_slots) -> Dienstarten: allein = Alle Aufgaben, zu zweit = Geteilt
   `do $$ begin
     if to_regclass('weekly_slots') is not null then

@@ -1,5 +1,8 @@
-import { dateException } from '@/app/actions'
-import { DUTY_LABELS, type Appointment, type ClosedDay, type DateException, type DateExtra, type Duty, type Period } from '@/lib/data'
+import { dateException, lectureException } from '@/app/actions'
+import {
+  DUTY_LABELS, lecturesOn, type Appointment, type ClosedDay, type DateException, type DateExtra, type Duty, type Lecture,
+  type LectureException, type Period,
+} from '@/lib/data'
 import { addDays, eachDay, formatDate, MONTHS, todayIso, WEEKDAYS_SHORT, weekday } from '@/lib/dates'
 import { SubmitButton } from './slot-button'
 import { StaffSelect, type Person } from './staff-select'
@@ -25,13 +28,103 @@ function Action({ period, date, op, staff, person, label, tone }: {
   )
 }
 
+function TaskAction({ lecture, date, op, label, tone }: {
+  lecture: number; date: string; op: string; label: string; tone: 'red' | 'green' | 'grey'
+}) {
+  const tones = {
+    red: 'border-red-300 text-red-700 hover:bg-red-50',
+    green: 'border-lmu text-lmu-darker hover:bg-lmu-light',
+    grey: 'border-neutral-300 text-neutral-600 hover:bg-neutral-100',
+  }
+  return (
+    <form action={lectureException} className="inline">
+      <input type="hidden" name="lecture" value={lecture} />
+      <input type="hidden" name="date" value={date} />
+      <input type="hidden" name="op" value={op} />
+      <SubmitButton className={`rounded border bg-white px-2 py-1 text-xs leading-tight sm:px-1.5 sm:py-0.5 sm:text-[11px] ${tones[tone]}`}>{label}</SubmitButton>
+    </form>
+  )
+}
+
+/** Vorlesungen Prof. Gsell und weitere Aufgaben an einem Tag: Ausfall und Vertretung wie bei den Diensten */
+function DayTasks({ date, lectures, exceptions, names, meId, planning, people, past }: {
+  date: string
+  lectures: Lecture[]
+  exceptions: LectureException[]
+  names: Record<number, string>
+  meId: number
+  planning: boolean
+  people: Person[]
+  past: boolean
+}) {
+  const items = lecturesOn(date, lectures, exceptions).filter((l) => l.regular_id)
+  if (!items.length) return null
+  return (
+    <ul className="mt-1.5 space-y-1 border-t border-neutral-100 pt-1 text-xs">
+      {items.map((l) => {
+        const mine = l.regular_id === meId
+        return (
+          <li key={l.id}>
+            <span className="text-neutral-500">{l.name}{l.time ? ` · ${l.time}` : ''}:</span>{' '}
+            <span className={l.absent ? 'text-red-700 line-through' : mine ? 'font-semibold text-lmu-darker' : ''}>
+              {names[l.regular_id!]}
+            </span>
+            {l.absent && (
+              <div>
+                →{' '}
+                {l.staff_id ? (
+                  <strong className={l.staff_id === meId ? 'text-lmu-darker' : ''}>{names[l.staff_id]}</strong>
+                ) : (
+                  <span className="font-semibold text-amber-700">Vertretung offen</span>
+                )}
+              </div>
+            )}
+            {!past && planning && (
+              <div className="mt-0.5 grid gap-1">
+                {l.absent ? (
+                  <>
+                    <StaffSelect
+                      action={lectureException}
+                      fields={{ lecture: l.id, date, op: 'substitute' }}
+                      value={l.staff_id}
+                      people={people.filter((p) => p.id !== l.regular_id)}
+                      names={names}
+                      empty="– Vertretung offen –"
+                      label={`Vertretung „${l.name}“ am ${formatDate(date)}`}
+                    />
+                    <TaskAction lecture={l.id} date={date} op="present" label="doch da" tone="grey" />
+                  </>
+                ) : (
+                  <TaskAction lecture={l.id} date={date} op="absent" label="fällt aus" tone="red" />
+                )}
+              </div>
+            )}
+            {!past && !planning && (
+              <div className="mt-0.5 flex flex-wrap gap-1">
+                {mine && !l.absent && <TaskAction lecture={l.id} date={date} op="absent" label="kann nicht" tone="red" />}
+                {mine && l.absent && <TaskAction lecture={l.id} date={date} op="present" label="doch da" tone="grey" />}
+                {l.absent && !l.staff_id && !mine && (
+                  <TaskAction lecture={l.id} date={date} op="cover" label="Vertretung übernehmen" tone="green" />
+                )}
+                {l.absent && l.staff_id === meId && <TaskAction lecture={l.id} date={date} op="uncover" label="abgeben" tone="grey" />}
+              </div>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 /** Einzelne Tage der Vorlesungszeit: regulärer Dienst je Datum, Ausfälle und Vertretungen. */
 export function DateExceptions({
-  period, duties, exceptions, extras, closed, appointments, names, meId, planning, people,
+  period, duties, exceptions, extras, closed, appointments, lectures, lectureExceptions, names, meId, planning, people,
 }: {
   period: Period
   duties: Duty[]
   exceptions: DateException[]
+  lectures: Lecture[]
+  lectureExceptions: LectureException[]
   extras: DateExtra[]
   closed: ClosedDay[]
   appointments: Appointment[]
@@ -45,9 +138,11 @@ export function DateExceptions({
   const today = todayIso()
   const days = eachDay(period.start_date, period.end_date)
   const months = [...new Set(days.map((d) => d.slice(0, 7)))]
-  const open = exceptions.filter(
-    (e) => !e.substitute_id && duties.some((d) => d.staff_id === e.staff_id && d.weekday === weekday(e.date)),
-  ).length
+  const open =
+    exceptions.filter(
+      (e) => !e.substitute_id && duties.some((d) => d.staff_id === e.staff_id && d.weekday === weekday(e.date)),
+    ).length +
+    lectureExceptions.filter((e) => !e.substitute_id && lectures.some((l) => l.id === e.lecture_id && l.staff_id)).length
 
   return (
     <div className="rounded-lg bg-white p-4 shadow-sm">
@@ -55,7 +150,9 @@ export function DateExceptions({
       <p className="text-sm text-neutral-600">
         Der Wochenplan füllt jeden Tag der Vorlesungszeit. Wenn du an einem Tag schon sicher nicht kannst, markiere ihn mit{' '}
         <strong>„kann nicht“</strong> – dann kann jemand anderes die Vertretung vorab übernehmen und es muss später nicht
-        getauscht werden. Mit <strong>„+ ich zusätzlich“</strong> übernimmst du einen einzelnen Tag zusätzlich.
+        getauscht werden. Mit <strong>„+ ich zusätzlich“</strong> übernimmst du einen einzelnen Tag zusätzlich. Das gilt
+        auch für die Vorlesungen Prof. Gsell und weitere Aufgaben (unter dem Strich im Tag): Fällt jemand aus, kann eine
+        andere Hilfskraft die Aufgabe als Vertretung übernehmen.
       </p>
       {open > 0 && (
         <p className="mt-2 text-sm font-semibold text-amber-700">⚠ {open} Tag{open === 1 ? '' : 'e'} ohne Vertretung</p>
@@ -106,7 +203,9 @@ export function DateExceptions({
                         regular.filter((r) => !exc.some((e) => e.staff_id === r.staff_id)).length +
                         exc.filter((e) => e.substitute_id && regular.some((r) => r.staff_id === e.staff_id)).length +
                         extra.length
-                      const hasOpen = regular.some((r) => exc.some((e) => e.staff_id === r.staff_id && !e.substitute_id))
+                      const hasOpen =
+                        regular.some((r) => exc.some((e) => e.staff_id === r.staff_id && !e.substitute_id)) ||
+                        lecturesOn(d, lectures, lectureExceptions).some((l) => l.regular_id && l.absent && !l.staff_id)
                       const past = d < today
                       return (
                         <div
@@ -203,6 +302,16 @@ export function DateExceptions({
                               <Action period={period.id} date={d} op="extra" label="+ ich zusätzlich" tone="green" />
                             </div>
                           )}
+                          <DayTasks
+                            date={d}
+                            lectures={lectures}
+                            exceptions={lectureExceptions}
+                            names={names}
+                            meId={meId}
+                            planning={planning}
+                            people={people}
+                            past={past}
+                          />
                         </div>
                       )
                     }),
