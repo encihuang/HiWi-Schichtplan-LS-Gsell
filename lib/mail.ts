@@ -45,6 +45,7 @@ export function clampMail(m: Partial<AutoMail> & { id: string }): AutoMail {
     weekday: Math.min(5, Math.max(1, Number(m.weekday) || 1)),
     weeks: Math.min(26, Math.max(1, Number(m.weeks) || 4)),
     daysBefore: Math.min(5, Math.max(0, Number(m.daysBefore ?? DEFAULT_MAILS.reminder.daysBefore) || 0)),
+    calendarDays: m.calendarDays === true,
     staffIds: (m.staffIds ?? []).map(Number).filter(Boolean),
     extra: m.extra ?? [],
     topics: (m.topics ?? []).filter((t): t is Topic => t in TOPIC_LABELS),
