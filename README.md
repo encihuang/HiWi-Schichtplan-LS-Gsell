@@ -15,8 +15,9 @@ Sekretariat** (Abwesenheiten). Hilfskräfte: **Wer bist du?** → **Studienjahr*
   Abwesenheiten oder Terminen sofort eine Aktualisierung raus
 - Vorlesungen Prof. Gsell und weitere Aufgaben: an einzelnen Tagen „kann nicht“ und Vertretung wie bei den Diensten;
   erscheinen in Übersicht, Kalender-Abo und im E-Mail-Platzhalter `{dienste}`
-- Erinnerung an Hilfskräfte vor dem Dienst (Einstellungen, je Person: am Diensttag oder 1–5 Werktage vorher) mit
-  Dienst und Vorlesungen/Aufgaben des Tages; Text einstellbar; Versand über den täglichen Cron
+- Erinnerung an Hilfskräfte vor dem Dienst: automatische E-Mail der Art „Erinnerung“ (Einstellungen → Automatische
+  E-Mails) mit Auswahl der Hilfskräfte (nur solche mit eingeteiltem Dienst), Zeitpunkt (am Diensttag oder 1–5
+  Werktage vorher) und Text; enthält Dienst und Vorlesungen/Aufgaben des Tages; Versand über den täglichen Cron
 - Übersicht: „Mehr anzeigen“ (+4 Wochen) und „Gesamten Zeitraum anzeigen“
 - Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin)
 

@@ -1,7 +1,7 @@
 import { addMail, deleteMail, saveAbsenceTexts, saveMail, saveSmtp, sendTestMail } from '@/app/actions'
 import { ROLE_LABELS, ROLES, type Staff } from '@/lib/data'
 import type { AbsenceTexts, MailState, SmtpConfig } from '@/lib/mail'
-import { FREQUENCY_LABELS, TOPIC_LABELS, type AutoMail, type Topic } from '@/lib/mail-shared'
+import { DAYS_BEFORE_OPTIONS, FREQUENCY_LABELS, TOPIC_LABELS, type AutoMail, type Topic } from '@/lib/mail-shared'
 import { WEEKDAYS } from '@/lib/dates'
 import { absenceBody } from '@/lib/absence-mail'
 import { MailTemplate } from './mail-template'
@@ -41,9 +41,42 @@ function Recipients({ mail, staff }: { mail: AutoMail; staff: Staff[] }) {
   )
 }
 
+/** Erinnerung: nur Hilfskräfte mit eingeteiltem Dienst bzw. Aufgabe; ohne E-Mail nicht wählbar */
+function ReminderRecipients({ mail, staff, withDuties }: { mail: AutoMail; staff: Staff[]; withDuties: number[] }) {
+  const people = staff.filter((s) => s.active && s.role === 'hiwi' && withDuties.includes(s.id))
+  const all = people.filter((s) => s.email)
+  return (
+    <div className="text-sm">
+      <p className={hint}>
+        Zur Auswahl stehen nur Hilfskräfte, die heute oder später einen Dienst, eine Vorlesung/Aufgabe oder eine Vertretung
+        übernommen haben. Jede bekommt ihre eigene Erinnerung – nur an Tagen, an denen sie etwas zu tun hat.
+      </p>
+      {people.length === 0 ? (
+        <p className="mt-2 text-neutral-500">Noch niemand mit eingeteiltem Dienst.</p>
+      ) : (
+        <ul className="mt-2 grid gap-x-4 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-3">
+          {people.map((s) => (
+            <li key={s.id}>
+              <label className={`flex items-center gap-2 ${s.email ? '' : 'text-neutral-400'}`} title={s.email || 'keine E-Mail hinterlegt'}>
+                <input type="checkbox" name="staff" value={s.id} disabled={!s.email} defaultChecked={mail.staffIds.includes(s.id)} className="accent-lmu" />
+                <span className="truncate">{s.name}</span>
+                {!s.email && <span className="text-xs">(keine E-Mail)</span>}
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      {all.length > 1 && <p className={`${hint} mt-1`}>{all.length} Hilfskräfte mit E-Mail-Adresse wählbar.</p>}
+    </div>
+  )
+}
+
 const TOPIC_SHORT: Record<Topic, string> = { absences: 'Abwesenheiten', appointments: 'Termine', shifts: 'Schichtplan' }
 
 function schedule(m: AutoMail) {
+  if (m.kind === 'reminder') {
+    return m.staffIds.length ? `Erinnerung ${DAYS_BEFORE_OPTIONS.find(([d]) => d === m.daysBefore)?.[1] ?? ''}` : 'aus'
+  }
   if (m.kind === 'change') {
     if (!m.topics.length) return 'aus'
     return `bei Änderungen: ${m.topics.map((t) => TOPIC_SHORT[t]).join(', ')}`
@@ -52,8 +85,11 @@ function schedule(m: AutoMail) {
   return m.frequency === 'weekly' ? `wöchentlich, ${WEEKDAYS[m.weekday - 1]}` : FREQUENCY_LABELS.daily
 }
 
-function MailCard({ mail, state, staff }: { mail: AutoMail; state?: MailState; staff: Staff[] }) {
-  const count = staff.filter((s) => s.active && s.email && mail.staffIds.includes(s.id)).length + mail.extra.length
+function MailCard({ mail, state, staff, withDuties }: { mail: AutoMail; state?: MailState; staff: Staff[]; withDuties: number[] }) {
+  const reminder = mail.kind === 'reminder'
+  const count = reminder
+    ? staff.filter((s) => s.active && s.email && mail.staffIds.includes(s.id) && withDuties.includes(s.id)).length
+    : staff.filter((s) => s.active && s.email && mail.staffIds.includes(s.id)).length + mail.extra.length
   const result = state?.lastResult
   return (
     <details id={`mail-${mail.id}`} className="group rounded-lg bg-white shadow-sm" open={!mail.staffIds.length && !mail.extra.length}>
@@ -63,7 +99,7 @@ function MailCard({ mail, state, staff }: { mail: AutoMail; state?: MailState; s
         <span className={`rounded px-1.5 text-xs ${schedule(mail) === 'aus' ? 'bg-neutral-100 text-neutral-600' : 'bg-lmu-light text-lmu-darker'}`}>
           {schedule(mail)}
         </span>
-        <span className="text-sm text-neutral-500">{count} Empfänger</span>
+        <span className="text-sm text-neutral-500">{count} {reminder ? (count === 1 ? 'Hilfskraft' : 'Hilfskräfte') : 'Empfänger'}</span>
         {result && (
           <span className={`basis-full text-xs sm:basis-auto ${result.includes('Fehler') ? 'font-semibold text-red-700' : 'text-neutral-500'}`}>
             Zuletzt: {result}
@@ -78,16 +114,40 @@ function MailCard({ mail, state, staff }: { mail: AutoMail; state?: MailState; s
             <input name="name" defaultValue={mail.name} required className={input} />
           </label>
 
-          <fieldset>
-            <legend className={legend}>Empfänger</legend>
-            <Recipients mail={mail} staff={staff} />
-            <label className={`${label} mt-3`}>
-              Weitere Adressen (optional)
-              <input name="extra" defaultValue={mail.extra.join(', ')} placeholder="durch Komma getrennt" className={input} />
-            </label>
-          </fieldset>
+          {reminder ? (
+            <>
+              <fieldset>
+                <legend className={legend}>Welche Hilfskräfte?</legend>
+                <ReminderRecipients mail={mail} staff={staff} withDuties={withDuties} />
+              </fieldset>
+              <fieldset className="grid gap-3 sm:grid-cols-3">
+                <legend className={legend}>Wann?</legend>
+                <label className={label}>
+                  Erinnerung
+                  <select name="daysBefore" defaultValue={mail.daysBefore} className={input}>
+                    {DAYS_BEFORE_OPTIONS.map(([d, l]) => (
+                      <option key={d} value={d}>{l}</option>
+                    ))}
+                  </select>
+                </label>
+                <span className={`${hint} self-end sm:col-span-2`}>
+                  Versand werktags morgens gegen 7 Uhr. „1 Werktag vorher“ für einen Montagsdienst kommt am Freitag. Für mehrere
+                  Zeitpunkte einfach eine weitere Erinnerung anlegen.
+                </span>
+              </fieldset>
+            </>
+          ) : (
+            <fieldset>
+              <legend className={legend}>Empfänger</legend>
+              <Recipients mail={mail} staff={staff} />
+              <label className={`${label} mt-3`}>
+                Weitere Adressen (optional)
+                <input name="extra" defaultValue={mail.extra.join(', ')} placeholder="durch Komma getrennt" className={input} />
+              </label>
+            </fieldset>
+          )}
 
-          {mail.kind === 'change' ? (
+          {reminder ? null : mail.kind === 'change' ? (
             <fieldset className="grid gap-3 sm:grid-cols-3">
               <legend className={legend}>Senden, sobald …</legend>
               <div className="grid gap-1.5 text-sm sm:col-span-2">
@@ -142,7 +202,9 @@ function MailCard({ mail, state, staff }: { mail: AutoMail; state?: MailState; s
           <form action={sendTestMail}>
             <input type="hidden" name="id" value={mail.id} />
             <SubmitButton className="rounded border border-lmu bg-white px-3 py-1.5 text-sm text-lmu-darker hover:bg-lmu-light">
-              Gespeicherte Fassung jetzt testen (E-Mail senden)
+              {reminder
+                ? 'Gespeicherte Fassung testen (Beispiel an die Absender-Adresse)'
+                : 'Gespeicherte Fassung jetzt testen (E-Mail senden)'}
             </SubmitButton>
           </form>
           <form action={deleteMail}>
@@ -156,11 +218,13 @@ function MailCard({ mail, state, staff }: { mail: AutoMail; state?: MailState; s
 }
 
 /** Einstellungen: SMTP-Zugang, automatische E-Mails und Text der Abwesenheitsmeldung. Das Passwort verlässt nie den Server. */
-export function MailSettings({ smtp, mails, states, staff, absenceTexts, canStoreSecrets, passwordReadable }: {
+export function MailSettings({ smtp, mails, states, staff, withDuties, absenceTexts, canStoreSecrets, passwordReadable }: {
   smtp: SmtpConfig
   mails: AutoMail[]
   states: Record<string, MailState>
   staff: Staff[]
+  /** Hilfskräfte mit eingeteiltem Dienst (wählbar für Erinnerungen) */
+  withDuties: number[]
   absenceTexts: AbsenceTexts
   canStoreSecrets: boolean
   passwordReadable: boolean
@@ -240,7 +304,8 @@ export function MailSettings({ smtp, mails, states, staff, absenceTexts, canStor
             <p className="text-sm text-neutral-600">
               <strong>Regelmäßig:</strong> z. B. eine wöchentliche Übersicht für das Sekretariat und Prof. Gsell, morgens gegen
               7 Uhr. <strong>Bei Änderungen:</strong> sofort, wenn jemand eine Abwesenheit oder einen Termin einträgt oder
-              löscht. Was drinsteht, bestimmen die Platzhalter im Text.
+              löscht. <strong>Erinnerung:</strong> an ausgewählte Hilfskräfte vor ihrem Dienst, mit Dienst, Vorlesungen und
+              Aufgaben des Tages. Was drinsteht, bestimmen die Platzhalter im Text.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -252,12 +317,16 @@ export function MailSettings({ smtp, mails, states, staff, absenceTexts, canStor
               <input type="hidden" name="kind" value="change" />
               <SubmitButton className={btn}>+ E-Mail bei Änderungen</SubmitButton>
             </form>
+            <form action={addMail}>
+              <input type="hidden" name="kind" value="reminder" />
+              <SubmitButton className={btn}>+ Erinnerung an Hilfskräfte</SubmitButton>
+            </form>
           </div>
         </div>
         <div className="mt-3 space-y-3">
           {mails.length === 0 && <p className="text-sm text-neutral-500">Noch keine automatischen E-Mails.</p>}
           {mails.map((m) => (
-            <MailCard key={m.id} mail={m} state={states[m.id]} staff={staff} />
+            <MailCard key={m.id} mail={m} state={states[m.id]} staff={staff} withDuties={withDuties} />
           ))}
         </div>
       </section>

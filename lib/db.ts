@@ -135,6 +135,13 @@ create table if not exists reminder_log (
   sent_at timestamptz not null default now(),
   primary key (staff_id, date)
 );
+create table if not exists reminder_sent (
+  mail_id text not null,
+  staff_id int not null references staff(id) on delete cascade,
+  date text not null,
+  sent_at timestamptz not null default now(),
+  primary key (mail_id, staff_id, date)
+);
 create table if not exists changelog (
   id serial primary key,
   period_id int references periods(id) on delete cascade,
@@ -166,7 +173,7 @@ const MIGRATIONS = [
   `create unique index if not exists staff_calendar_token on staff (calendar_token)`,
   // Bereiche: studentische Hilfskräfte und übriges Lehrstuhlteam
   `alter table staff add column if not exists role text not null default 'hiwi'`,
-  // Erinnerung per E-Mail vor dem Dienst: Anzahl Werktage vorher (0 = am selben Morgen), null = aus
+  // frühere Erinnerung je Person (Werktage vorher); wird einmalig in eine automatische E-Mail „Erinnerung“ übernommen
   `alter table staff add column if not exists reminder_days int`,
   // Ansprechpartner/Support (weekly_slots) -> Dienstarten: allein = Alle Aufgaben, zu zweit = Geteilt
   `do $$ begin

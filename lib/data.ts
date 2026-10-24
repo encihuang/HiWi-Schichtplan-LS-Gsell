@@ -15,8 +15,6 @@ export type Staff = {
   active: boolean
   email: string
   role: Role
-  /** Erinnerung per E-Mail: Werktage vor dem Dienst (0 = am selben Morgen), null = aus */
-  reminder_days: number | null
 }
 export type Role = 'hiwi' | 'wimi' | 'rat' | 'sekretariat' | 'prof'
 export const ROLE_LABELS: Record<Role, string> = {
@@ -79,7 +77,7 @@ export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
 
 export async function listStaff(onlyActive = false) {
   const rows = await query<Staff>(
-    `select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role, reminder_days
+    `select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role
      from staff ${onlyActive ? 'where active' : ''} order by name`,
   )
   return rows
@@ -87,7 +85,7 @@ export async function listStaff(onlyActive = false) {
 
 export async function getStaff(id: number) {
   const [s] = await query<Staff>(
-    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role, reminder_days from staff where id = $1',
+    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role from staff where id = $1',
     [id],
   )
   return s
@@ -171,6 +169,25 @@ export function lectureText(l: DayLecture, names: Record<number, string>) {
     return l.staff_id ? `${title}: ${names[l.staff_id] ?? '?'} (Vertretung für ${regular})` : `${title}: ${regular} fällt aus, Vertretung offen`
   }
   return `${title}: ${l.staff_id ? names[l.staff_id] ?? '?' : 'noch niemand'}`
+}
+
+/**
+ * Aktive Hilfskräfte, die heute oder später etwas zu tun haben: Wochendienst, Vorlesung/Aufgabe, Dienst in der
+ * vorlesungsfreien Zeit, Zusatzdienst oder Vertretung (in laufenden oder kommenden Zeiträumen).
+ */
+export async function hiwisWithDuties() {
+  const today = todayIso()
+  const rows = await query<{ id: number }>(
+    `select staff_id as id from weekly_duties w join periods p on p.id = w.period_id where p.end_date >= $1
+     union select l.staff_id from lectures l join periods p on p.id = l.period_id where p.end_date >= $1 and l.staff_id is not null
+     union select staff_id from daily_slots where date >= $1
+     union select staff_id from date_extras where date >= $1
+     union select substitute_id from date_exceptions where date >= $1 and substitute_id is not null
+     union select substitute_id from lecture_exceptions where date >= $1 and substitute_id is not null`,
+    [today],
+  )
+  const ids = new Set(rows.map((r) => r.id))
+  return (await listStaff(true)).filter((s) => isHiwi(s) && ids.has(s.id))
 }
 
 export const listDaily = (periodId: number) =>
@@ -480,7 +497,7 @@ export async function calendarToken(staffId: number, renew = false) {
 export async function staffByCalendarToken(token: string) {
   if (!/^[\w-]{16,}$/.test(token)) return undefined
   const [s] = await query<Staff>(
-    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role, reminder_days from staff where calendar_token = $1',
+    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role from staff where calendar_token = $1',
     [token],
   )
   return s

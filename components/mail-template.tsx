@@ -1,7 +1,9 @@
 'use client'
 
 import { useRef } from 'react'
-import { BLOCK_PLACEHOLDERS, DEFAULT_MAILS, PLACEHOLDERS, type MailKind } from '@/lib/mail-shared'
+import {
+  BLOCK_PLACEHOLDERS, DEFAULT_MAILS, PLACEHOLDERS, REMINDER_BLOCKS, REMINDER_PLACEHOLDERS, type MailKind,
+} from '@/lib/mail-shared'
 
 const input = 'w-full min-w-0 rounded border border-neutral-300 px-2 py-1.5 text-sm focus:outline-2 focus:outline-lmu'
 const label = 'grid min-w-0 gap-1 text-sm'
@@ -11,8 +13,11 @@ type Field = HTMLInputElement | HTMLTextAreaElement
 
 /** Betreff und Text einer automatischen E-Mail; Klick auf einen Platzhalter fügt ihn an der Cursorposition ein. */
 export function MailTemplate({ kind, subject, body }: { kind: MailKind; subject: string; body: string }) {
-  // {aenderung} gibt es nur bei Änderungen
-  const values = Object.entries(PLACEHOLDERS).filter(([k]) => kind === 'change' || k !== 'aenderung')
+  // {aenderung} gibt es nur bei Änderungen; Erinnerungen haben eigene Platzhalter
+  const values = kind === 'reminder'
+    ? Object.entries(REMINDER_PLACEHOLDERS)
+    : Object.entries(PLACEHOLDERS).filter(([k]) => kind === 'change' || k !== 'aenderung')
+  const blocks = Object.entries(kind === 'reminder' ? REMINDER_BLOCKS : BLOCK_PLACEHOLDERS)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
   const last = useRef<Field | null>(null)
   const remember = (e: React.FocusEvent<Field>) => (last.current = e.currentTarget)
@@ -33,7 +38,7 @@ export function MailTemplate({ kind, subject, body }: { kind: MailKind; subject:
           Platzhalter anklicken, um ihn an der Cursorposition einzufügen. Listen werden mit Überschrift eingefügt:
         </span>
         <div className="flex flex-wrap gap-1.5">
-          {Object.entries(BLOCK_PLACEHOLDERS).map(([k, d]) => (
+          {blocks.map(([k, d]) => (
             <button key={k} type="button" title={d} onMouseDown={(e) => e.preventDefault()} onClick={() => insert(k)}
               className={`${chip} border-lmu bg-lmu-lighter text-lmu-darker hover:bg-lmu-light`}>
               {`{${k}}`}
@@ -51,7 +56,7 @@ export function MailTemplate({ kind, subject, body }: { kind: MailKind; subject:
         <details className="text-xs text-neutral-600">
           <summary className="cursor-pointer">Was bedeuten die Platzhalter?</summary>
           <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-            {[...Object.entries(BLOCK_PLACEHOLDERS), ...values].map(([k, d]) => (
+            {[...blocks, ...values].map(([k, d]) => (
               <div key={k} className="contents">
                 <dt className="font-mono">{`{${k}}`}</dt>
                 <dd>{d}</dd>

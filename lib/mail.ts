@@ -36,7 +36,7 @@ export async function loadAbsenceTexts(): Promise<AbsenceTexts> {
 export type MailState = { lastSent: string | null; lastResult: string | null }
 
 export function clampMail(m: Partial<AutoMail> & { id: string }): AutoMail {
-  const kind = m.kind === 'change' ? 'change' : 'schedule'
+  const kind = m.kind === 'change' || m.kind === 'reminder' ? m.kind : 'schedule'
   return {
     ...DEFAULT_MAILS[kind],
     ...m,
@@ -44,6 +44,7 @@ export function clampMail(m: Partial<AutoMail> & { id: string }): AutoMail {
     frequency: (['daily', 'weekly'] as const).find((f) => f === m.frequency) ?? 'off',
     weekday: Math.min(5, Math.max(1, Number(m.weekday) || 1)),
     weeks: Math.min(26, Math.max(1, Number(m.weeks) || 4)),
+    daysBefore: Math.min(5, Math.max(0, Number(m.daysBefore ?? DEFAULT_MAILS.reminder.daysBefore) || 0)),
     staffIds: (m.staffIds ?? []).map(Number).filter(Boolean),
     extra: m.extra ?? [],
     topics: (m.topics ?? []).filter((t): t is Topic => t in TOPIC_LABELS),
@@ -81,19 +82,19 @@ export async function loadMails(): Promise<AutoMail[]> {
   const [stored, d, t] = await Promise.all([getSettings('mails.'), getSettings('digest.'), getSettings('text.')])
   if (stored.json !== undefined) {
     try {
-      return (JSON.parse(stored.json) as OldMail[]).flatMap(upgrade)
+      return await withReminderUpgrade((JSON.parse(stored.json) as OldMail[]).flatMap(upgrade))
     } catch {
       return []
     }
   }
-  if (!d.recipients && !d.frequency) return [clampMail({ id: 'm1' })]
+  if (!d.recipients && !d.frequency) return withReminderUpgrade([clampMail({ id: 'm1' })])
   const blocks = [
     d.absences !== '0' && '{neue_abwesenheiten}\n\n{abwesenheiten}',
     d.appointments !== '0' && '{termine}',
     d.duties === '1' && '{dienste}',
   ].filter(Boolean)
   const body = [t.intro, ...blocks, 'Aktuelle Übersicht: {link}', t.closing].filter((x) => x && x.trim()).join('\n\n')
-  return upgrade({
+  return withReminderUpgrade(upgrade({
     id: 'legacy',
     name: 'Zusammenfassung',
     extra: (d.recipients ?? '').split(/[\s,;]+/).filter(Boolean),
@@ -104,7 +105,34 @@ export async function loadMails(): Promise<AutoMail[]> {
     subject: t.subject || DEFAULT_MAILS.schedule.subject,
     updateSubject: t.updateSubject,
     body,
-  })
+  }))
+}
+
+/**
+ * Früher: Erinnerung je Hilfskraft (staff.reminder_days) mit eigenem Text (reminder.subject/body).
+ * Einmalig je Vorlaufzeit eine automatische E-Mail „Erinnerung“ mit diesen Personen anlegen.
+ */
+async function withReminderUpgrade(mails: AutoMail[]) {
+  const r = await getSettings('reminder.')
+  if (r.upgraded) return mails
+  const rows = await query<{ id: number; days: number }>(
+    `select id, reminder_days as days from staff where reminder_days is not null and role = 'hiwi'`,
+  ).catch(() => [])
+  const byDays = new Map<number, number[]>()
+  for (const x of rows) byDays.set(x.days, [...(byDays.get(x.days) ?? []), x.id])
+  const added = [...byDays].map(([days, ids], i) =>
+    clampMail({
+      ...DEFAULT_MAILS.reminder,
+      id: `r${Date.now().toString(36)}${i}`,
+      staffIds: ids,
+      daysBefore: days,
+      subject: r.subject || DEFAULT_MAILS.reminder.subject,
+      body: r.body || DEFAULT_MAILS.reminder.body,
+    }),
+  )
+  if (added.length) await saveMails([...mails, ...added])
+  await setSetting('reminder.upgraded', '1')
+  return [...mails, ...added]
 }
 
 export async function saveMails(mails: AutoMail[]) {
@@ -124,7 +152,7 @@ export async function loadMailStates(): Promise<Record<string, MailState>> {
   return out
 }
 
-const setState = (id: string, field: keyof MailState, value: string) => setSetting(`mailstate.${id}.${field}`, value)
+export const setState = (id: string, field: keyof MailState, value: string) => setSetting(`mailstate.${id}.${field}`, value)
 
 export async function loadMailConfig() {
   const m = await getSettings('smtp.')
@@ -343,6 +371,8 @@ export async function runMails(origin: string, testId?: string) {
   const result: Record<string, string> = {}
   for (const m of mails) {
     const state = states[m.id] ?? { lastSent: null, lastResult: null }
+    // Erinnerungen an Hilfskräfte verschickt lib/reminders.ts
+    if (m.kind === 'reminder') continue
     if (testId) {
       if (m.id === testId) result[m.name] = await deliver(m, state, origin, { test: true })
       continue

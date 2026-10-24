@@ -1,8 +1,8 @@
 // Gemeinsam für Server und Einstellungsseite (ohne Datenbank)
 
 export type Frequency = 'off' | 'daily' | 'weekly'
-/** regelmäßig nach Zeitplan oder sofort bei Änderungen */
-export type MailKind = 'schedule' | 'change'
+/** regelmäßig nach Zeitplan, sofort bei Änderungen oder Erinnerung an Hilfskräfte vor ihrem Dienst */
+export type MailKind = 'schedule' | 'change' | 'reminder'
 export type Topic = 'absences' | 'appointments' | 'shifts'
 
 /** Automatisch verschickte E-Mail (z. B. wöchentliche Übersicht fürs Sekretariat) */
@@ -22,6 +22,8 @@ export type AutoMail = {
   topics: Topic[]
   /** Vorschau in Wochen für {abwesenheiten} und {termine} */
   weeks: number
+  /** nur Erinnerung: Werktage vor dem Dienst (0 = am Diensttag morgens) */
+  daysBefore: number
   subject: string
   body: string
 }
@@ -65,8 +67,31 @@ export type BlockKey = keyof typeof BLOCK_PLACEHOLDERS
 const SIGNATURE = 'Diese E-Mail wurde automatisch verschickt.\n{titel} – {lehrstuhl}'
 
 const base = (): Omit<AutoMail, 'id' | 'kind' | 'name' | 'subject' | 'body'> => ({
-  staffIds: [], extra: [], frequency: 'off', weekday: 1, topics: [], weeks: 4,
+  staffIds: [], extra: [], frequency: 'off', weekday: 1, topics: [], weeks: 4, daysBefore: 1,
 })
+
+/** Erinnerung: Werktage vor dem Dienst */
+export const DAYS_BEFORE_OPTIONS: [number, string][] = [
+  [0, 'am Diensttag morgens'],
+  [1, '1 Werktag vorher'],
+  [2, '2 Werktage vorher'],
+  [3, '3 Werktage vorher'],
+  [5, '5 Werktage vorher'],
+]
+
+/** Platzhalter der Erinnerung (Werte der jeweiligen Hilfskraft und des Diensttags) */
+export const REMINDER_PLACEHOLDERS = {
+  vorname: 'Vorname der Hilfskraft',
+  name: 'voller Name der Hilfskraft',
+  datum: 'Datum des Dienstes',
+  wochentag: 'Wochentag des Dienstes',
+  link: 'Link zum Schichtplan',
+  titel: 'Name der App',
+  lehrstuhl: 'Name des Lehrstuhls',
+} as const
+export const REMINDER_BLOCKS = {
+  aufgaben: 'Dienst sowie Vorlesungen/Aufgaben an dem Tag (mit Vertretungen)',
+} as const
 
 export const DEFAULT_MAILS: Record<MailKind, Omit<AutoMail, 'id'>> = {
   schedule: {
@@ -83,6 +108,19 @@ export const DEFAULT_MAILS: Record<MailKind, Omit<AutoMail, 'id'>> = {
       '{termine}',
       '{dienste}',
       'Den jeweils aktuellen Stand finden Sie hier:\n{link}',
+      SIGNATURE,
+    ].join('\n\n'),
+  },
+  reminder: {
+    ...base(),
+    kind: 'reminder',
+    name: 'Erinnerung an Hilfskräfte',
+    subject: 'Erinnerung: Dienst am {wochentag}, {datum}',
+    body: [
+      'Hallo {vorname},',
+      'kurze Erinnerung an deinen Dienst am {wochentag}, {datum}:',
+      '{aufgaben}',
+      'Falls du nicht kannst, trag bitte rechtzeitig „kann nicht“ im Schichtplan ein, damit jemand die Vertretung übernehmen kann:\n{link}',
       SIGNATURE,
     ].join('\n\n'),
   },

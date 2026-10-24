@@ -9,7 +9,6 @@ import { clampMail, DEFAULT_ABSENCE_TEXTS, loadMails, runMails, saveMails, sendU
 import { DEFAULT_MAILS, type Topic } from '@/lib/mail-shared'
 import { encrypt, setSetting } from '@/lib/settings'
 import { sendTestReminder } from '@/lib/reminders'
-import { DEFAULT_REMINDER_TEXTS, REMINDER_OPTIONS } from '@/lib/reminder-shared'
 import {
   ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
   type AbsenceKind, type AvailabilityStatus, type DutyKind, type Role,
@@ -594,16 +593,12 @@ export async function saveStaff(fd: FormData) {
   const active = fd.get('active') === 'on'
   const email = str(fd, 'email')
   const role = (ROLES as string[]).includes(str(fd, 'role')) ? (str(fd, 'role') as Role) : 'hiwi'
-  // Erinnerung vor dem Dienst (nur Hilfskräfte): Werktage vorher, leer = aus
-  const r = str(fd, 'reminder')
-  const reminder = role === 'hiwi' && r !== '' && REMINDER_OPTIONS.some(([v]) => v === Number(r)) ? Number(r) : null
   if (!name) return
   if (email && !EMAIL.test(email)) return
   if (id) {
     await query(
-      `update staff set name = $2, hours_per_week = $3, start_date = $4, end_date = $5, active = $6, email = $7, role = $8,
-       reminder_days = $9 where id = $1`,
-      [id, name, hours, start, end, active, email, role, reminder],
+      'update staff set name = $2, hours_per_week = $3, start_date = $4, end_date = $5, active = $6, email = $7, role = $8 where id = $1',
+      [id, name, hours, start, end, active, email, role],
     )
     await addLog(null, await actorName(), `${name} geändert`)
   } else {
@@ -667,6 +662,7 @@ export async function saveMail(fd: FormData) {
     weekday: num(fd, 'weekday'),
     topics: fd.getAll('topics').map(String) as Topic[],
     weeks: num(fd, 'weeks'),
+    daysBefore: num(fd, 'daysBefore'),
     subject: text(fd, 'subject') || DEFAULT_MAILS[kind].subject,
     body: text(fd, 'body'),
   })
@@ -675,10 +671,11 @@ export async function saveMail(fd: FormData) {
   revalidatePath('/', 'layout')
 }
 
-/** Neue automatische E-Mail, regelmäßig oder bei Änderungen (zunächst ohne Empfänger, also inaktiv) */
+/** Neue automatische E-Mail: regelmäßig, bei Änderungen oder Erinnerung (zunächst ohne Empfänger, also inaktiv) */
 export async function addMail(fd: FormData) {
   await requireAdmin()
-  const kind = str(fd, 'kind') === 'change' ? 'change' : 'schedule'
+  const k = str(fd, 'kind')
+  const kind = k === 'change' || k === 'reminder' ? k : 'schedule'
   const mails = await loadMails()
   const id = `m${Date.now().toString(36)}`
   mails.push({ ...DEFAULT_MAILS[kind], id })
@@ -725,30 +722,13 @@ async function notifyChange(topic: Topic, change: string) {
   after(() => sendUpdate(o, topic, change))
 }
 
-/** Text der Erinnerung an Hilfskräfte vor dem Dienst */
-export async function saveReminderTexts(fd: FormData) {
-  await requireAdmin()
-  for (const k of Object.keys(DEFAULT_REMINDER_TEXTS)) {
-    const v = String(fd.get(k) ?? '').replace(/\r\n/g, '\n').trim()
-    await setSetting(`reminder.${k}`, v || DEFAULT_REMINDER_TEXTS[k as keyof typeof DEFAULT_REMINDER_TEXTS])
-  }
-  await addLog(null, await actorName(), 'Text der Dienst-Erinnerung geändert')
-  revalidatePath('/einstellungen')
-}
-
-/** Nächste Erinnerung einer Hilfskraft testweise an eine Adresse schicken */
-export async function testReminder(fd: FormData) {
-  await requireAdmin()
-  const to = str(fd, 'to')
-  if (!EMAIL.test(to)) return
-  await sendTestReminder(await origin(), num(fd, 'staff'), to)
-  revalidatePath('/einstellungen')
-}
-
 /** Eine automatische E-Mail sofort an ihre Empfänger schicken (zum Testen). */
 export async function sendTestMail(fd: FormData) {
   await requireAdmin()
-  await runMails(await origin(), str(fd, 'id'))
+  const id = str(fd, 'id')
+  // Erinnerung: Beispiel für die erste ausgewählte Hilfskraft an die Absender-Adresse
+  if ((await loadMails()).some((m) => m.id === id && m.kind === 'reminder')) await sendTestReminder(await origin(), id)
+  else await runMails(await origin(), id)
   revalidatePath('/einstellungen')
 }
 
