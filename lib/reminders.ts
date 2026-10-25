@@ -1,7 +1,7 @@
 import 'server-only'
 import { APP_TITLE, CHAIR } from './brand'
 import { hiwisWithDuties, lectureText, listStaff, loadDays, type DayInfo, type Staff } from './data'
-import { addDays, formatDate, formatDateTime, todayIso, WEEKDAYS, weekday } from './dates'
+import { addDays, berlinHour, formatDate, formatDateTime, todayIso, WEEKDAYS, weekday } from './dates'
 import { query } from './db'
 import { loadMailConfig, loadMails, send, setState } from './mail'
 import type { AutoMail } from './mail-shared'
@@ -67,7 +67,7 @@ async function recipients(mail: AutoMail) {
 }
 
 /**
- * Täglicher Cron: je Erinnerung an die ausgewählten Hilfskräfte, die am n-ten Werktag (nur werktags verschickt)
+ * Stündlicher Cron: je Erinnerung ab ihrer Uhrzeit an die ausgewählten Hilfskräfte, die am n-ten Werktag (nur werktags verschickt)
  * bzw. in n Kalendertagen (auch am Wochenende) Dienst haben.
  * Pro Erinnerung, Person und Diensttag höchstens einmal (reminder_sent).
  */
@@ -81,7 +81,13 @@ export async function runReminders(origin: string) {
   const staff = await listStaff()
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const out: Record<string, string> = {}
+  const hour = berlinHour()
   for (const mail of mails) {
+    // Cron läuft stündlich: erst ab der eingestellten Uhrzeit (danach dank reminder_sent nicht noch einmal)
+    if (hour < mail.hour) {
+      out[`${mail.name} (${mail.id})`] = `erst ab ${mail.hour} Uhr`
+      continue
+    }
     const date = mail.calendarDays ? addDays(today, mail.daysBefore) : workdayAfter(today, mail.daysBefore)
     const [day] = await loadDays(date, date)
     const sent: string[] = []

@@ -664,6 +664,7 @@ export async function saveMail(fd: FormData) {
     weeks: num(fd, 'weeks'),
     daysBefore: parseInt(str(fd, 'daysBefore')) || 0,
     calendarDays: str(fd, 'daysBefore').endsWith('k'),
+    hour: num(fd, 'hour'),
     subject: text(fd, 'subject') || DEFAULT_MAILS[kind].subject,
     body: text(fd, 'body'),
   })

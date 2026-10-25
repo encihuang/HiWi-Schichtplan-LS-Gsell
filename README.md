@@ -17,8 +17,9 @@ Sekretariat** (Abwesenheiten). Hilfskräfte: **Wer bist du?** → **Studienjahr*
   erscheinen in Übersicht, Kalender-Abo und im E-Mail-Platzhalter `{dienste}`
 - Erinnerung an Hilfskräfte vor dem Dienst: automatische E-Mail der Art „Erinnerung“ (Einstellungen → Automatische
   E-Mails) mit Auswahl der Hilfskräfte (nur solche mit eingeteiltem Dienst), Zeitpunkt (am Diensttag, 1–5
-  Werktage vorher oder 1–3 Tage vorher, dann auch am Wochenende) und Text; enthält Dienst und Vorlesungen/Aufgaben
-  des Tages; Versand über den täglichen Cron
+  Werktage vorher oder 1–3 Tage vorher, dann auch am Wochenende), Uhrzeit (6–22 Uhr) und Text; enthält Dienst und
+  Vorlesungen/Aufgaben des Tages; Versand über den stündlichen Cron (GitHub Actions `.github/workflows/cron.yml`,
+  da Vercel Cron im Hobby-Tarif nur täglich läuft)
 - Übersicht: „Mehr anzeigen“ (+4 Wochen) und „Gesamten Zeitraum anzeigen“
 - Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin)
 

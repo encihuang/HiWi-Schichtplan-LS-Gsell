@@ -3,7 +3,8 @@ import { runReminders } from '@/lib/reminders'
 
 export const dynamic = 'force-dynamic'
 
-// Täglich von Vercel Cron aufgerufen (vercel.json): automatische E-Mails und Dienst-Erinnerungen.
+// Stündlich per GitHub Actions (.github/workflows/cron.yml), zusätzlich täglich per Vercel Cron (vercel.json):
+// automatische E-Mails und Dienst-Erinnerungen.
 // Ob gesendet wird, entscheidet der Zeitplan in den Einstellungen;
 // pro Tag höchstens einmal. Mit CRON_SECRET nur mit passendem Authorization-Header (setzt Vercel automatisch).
 export async function GET(request: Request) {
