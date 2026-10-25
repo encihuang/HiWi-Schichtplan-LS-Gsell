@@ -662,7 +662,8 @@ export async function saveMail(fd: FormData) {
     weekday: num(fd, 'weekday'),
     topics: fd.getAll('topics').map(String) as Topic[],
     weeks: num(fd, 'weeks'),
-    daysBefore: num(fd, 'daysBefore'),
+    daysBefore: parseInt(str(fd, 'daysBefore')) || 0,
+    calendarDays: str(fd, 'daysBefore').endsWith('k'),
     subject: text(fd, 'subject') || DEFAULT_MAILS[kind].subject,
     body: text(fd, 'body'),
   })

@@ -67,19 +67,22 @@ async function recipients(mail: AutoMail) {
 }
 
 /**
- * Täglicher Cron (nur werktags): je Erinnerung an die ausgewählten Hilfskräfte, die am n-ten Werktag Dienst haben.
+ * Täglicher Cron: je Erinnerung an die ausgewählten Hilfskräfte, die am n-ten Werktag (nur werktags verschickt)
+ * bzw. in n Kalendertagen (auch am Wochenende) Dienst haben.
  * Pro Erinnerung, Person und Diensttag höchstens einmal (reminder_sent).
  */
 export async function runReminders(origin: string) {
   const today = todayIso()
-  if (weekday(today) > 5) return 'Wochenende'
-  const mails = (await loadMails()).filter((m) => m.kind === 'reminder' && m.staffIds.length)
-  if (!mails.length) return 'keine Erinnerung eingerichtet'
+  const weekend = weekday(today) > 5
+  const all = (await loadMails()).filter((m) => m.kind === 'reminder' && m.staffIds.length)
+  if (!all.length) return 'keine Erinnerung eingerichtet'
+  const mails = weekend ? all.filter((m) => m.calendarDays) : all
+  if (!mails.length) return 'Wochenende'
   const staff = await listStaff()
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const out: Record<string, string> = {}
   for (const mail of mails) {
-    const date = workdayAfter(today, mail.daysBefore)
+    const date = mail.calendarDays ? addDays(today, mail.daysBefore) : workdayAfter(today, mail.daysBefore)
     const [day] = await loadDays(date, date)
     const sent: string[] = []
     const errors: string[] = []
