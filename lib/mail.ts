@@ -5,7 +5,7 @@ import { APP_TITLE, CHAIR } from './brand'
 import {
   ABSENCE_LABELS, lectureText, listAbsences, listAppointments, listStaff, loadDays, ROLE_LABELS, type Absence,
 } from './data'
-import { addDays, formatDate, formatDateTime, todayIso, WEEKDAYS, weekday } from './dates'
+import { addDays, berlinHour, formatDate, formatDateTime, todayIso, WEEKDAYS, weekday } from './dates'
 import { query } from './db'
 import { decrypt, getSettings, setSetting } from './settings'
 import {
@@ -46,6 +46,7 @@ export function clampMail(m: Partial<AutoMail> & { id: string }): AutoMail {
     weeks: Math.min(26, Math.max(1, Number(m.weeks) || 4)),
     daysBefore: Math.min(5, Math.max(0, Number(m.daysBefore ?? DEFAULT_MAILS.reminder.daysBefore) || 0)),
     calendarDays: m.calendarDays === true,
+    hour: Number.isFinite(Number(m.hour)) ? Math.min(23, Math.max(0, Math.round(Number(m.hour)))) : DEFAULT_MAILS.reminder.hour,
     staffIds: (m.staffIds ?? []).map(Number).filter(Boolean),
     extra: m.extra ?? [],
     topics: (m.topics ?? []).filter((t): t is Topic => t in TOPIC_LABELS),
@@ -381,6 +382,8 @@ export async function runMails(origin: string, testId?: string) {
     if (m.kind !== 'schedule' || m.frequency === 'off') continue
     const day = weekday(today)
     if (day > 5 || (m.frequency === 'weekly' && day !== m.weekday)) continue
+    // Cron läuft stündlich: regelmäßige E-Mails wie bisher ab 7 Uhr
+    if (berlinHour() < 7) continue
     if (state.lastSent && berlinDay(state.lastSent) === today) continue
     // noch keine Empfänger ausgewählt
     if (!(await recipientsOf(m)).length) continue

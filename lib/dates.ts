@@ -46,6 +46,10 @@ export function eachDay(start: string, end: string): string[] {
 export const todayIso = () =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin' }).format(new Date())
 
+/** aktuelle Stunde (0–23) in Berlin */
+export const berlinHour = () =>
+  Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', hour: '2-digit', hourCycle: 'h23' }).format(new Date()))
+
 export const formatDate = (iso: string) => {
   const [y, m, d] = iso.split('-')
   return `${d}.${m}.${y}`

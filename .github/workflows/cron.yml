@@ -1,0 +1,19 @@
+# Stündlicher Aufruf des Cron-Endpunkts: Erinnerungen zur eingestellten Uhrzeit.
+# Vercel Cron (vercel.json) läuft im Hobby-Tarif nur einmal am Tag und bleibt als Rückfall bestehen.
+name: Stündlicher Cron
+
+on:
+  schedule:
+    - cron: '5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: /api/cron/digest aufrufen
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS --max-time 120 ${CRON_SECRET:+-H "Authorization: Bearer $CRON_SECRET"} https://ls-gsell.vercel.app/api/cron/digest

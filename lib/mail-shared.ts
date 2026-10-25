@@ -22,10 +22,12 @@ export type AutoMail = {
   topics: Topic[]
   /** Vorschau in Wochen für {abwesenheiten} und {termine} */
   weeks: number
-  /** nur Erinnerung: Tage vor dem Dienst (0 = am Diensttag morgens) */
+  /** nur Erinnerung: Tage vor dem Dienst (0 = am Diensttag) */
   daysBefore: number
   /** nur Erinnerung: Kalendertage statt Werktage (Versand dann auch am Wochenende) */
   calendarDays: boolean
+  /** nur Erinnerung: Uhrzeit des Versands (volle Stunde, Berlin) */
+  hour: number
   subject: string
   body: string
 }
@@ -69,12 +71,12 @@ export type BlockKey = keyof typeof BLOCK_PLACEHOLDERS
 const SIGNATURE = 'Diese E-Mail wurde automatisch verschickt.\n{titel} – {lehrstuhl}'
 
 const base = (): Omit<AutoMail, 'id' | 'kind' | 'name' | 'subject' | 'body'> => ({
-  staffIds: [], extra: [], frequency: 'off', weekday: 1, topics: [], weeks: 4, daysBefore: 1, calendarDays: false,
+  staffIds: [], extra: [], frequency: 'off', weekday: 1, topics: [], weeks: 4, daysBefore: 1, calendarDays: false, hour: 7,
 })
 
 /** Erinnerung: Werktage („1“) oder Kalendertage („1k“) vor dem Dienst */
 export const DAYS_BEFORE_OPTIONS: [string, string][] = [
-  ['0', 'am Diensttag morgens'],
+  ['0', 'am Diensttag'],
   ['1', '1 Werktag vorher'],
   ['2', '2 Werktage vorher'],
   ['3', '3 Werktage vorher'],
@@ -83,6 +85,9 @@ export const DAYS_BEFORE_OPTIONS: [string, string][] = [
   ['2k', '2 Tage vorher (auch am Wochenende)'],
   ['3k', '3 Tage vorher (auch am Wochenende)'],
 ]
+
+/** Erinnerung: wählbare Uhrzeiten (volle Stunden) */
+export const HOUR_OPTIONS = Array.from({ length: 17 }, (_, i) => i + 6)
 
 /** Wert der Auswahl für eine Erinnerung */
 export const daysBeforeKey = (m: Pick<AutoMail, 'daysBefore' | 'calendarDays'>) =>

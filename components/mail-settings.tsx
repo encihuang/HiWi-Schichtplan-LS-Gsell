@@ -1,7 +1,7 @@
 import { addMail, deleteMail, saveAbsenceTexts, saveMail, saveSmtp, sendTestMail } from '@/app/actions'
 import { ROLE_LABELS, ROLES, type Staff } from '@/lib/data'
 import type { AbsenceTexts, MailState, SmtpConfig } from '@/lib/mail'
-import { daysBeforeKey, DAYS_BEFORE_OPTIONS, FREQUENCY_LABELS, TOPIC_LABELS, type AutoMail, type Topic } from '@/lib/mail-shared'
+import { daysBeforeKey, DAYS_BEFORE_OPTIONS, HOUR_OPTIONS, FREQUENCY_LABELS, TOPIC_LABELS, type AutoMail, type Topic } from '@/lib/mail-shared'
 import { WEEKDAYS } from '@/lib/dates'
 import { absenceBody } from '@/lib/absence-mail'
 import { MailTemplate } from './mail-template'
@@ -75,7 +75,7 @@ const TOPIC_SHORT: Record<Topic, string> = { absences: 'Abwesenheiten', appointm
 
 function schedule(m: AutoMail) {
   if (m.kind === 'reminder') {
-    return m.staffIds.length ? `Erinnerung ${DAYS_BEFORE_OPTIONS.find(([d]) => d === daysBeforeKey(m))?.[1] ?? ''}` : 'aus'
+    return m.staffIds.length ? `Erinnerung ${DAYS_BEFORE_OPTIONS.find(([d]) => d === daysBeforeKey(m))?.[1] ?? ''}, ${m.hour}:00 Uhr` : 'aus'
   }
   if (m.kind === 'change') {
     if (!m.topics.length) return 'aus'
@@ -130,9 +130,18 @@ function MailCard({ mail, state, staff, withDuties }: { mail: AutoMail; state?: 
                     ))}
                   </select>
                 </label>
-                <span className={`${hint} self-end sm:col-span-2`}>
-                  Versand morgens gegen 7 Uhr. „1 Werktag vorher“ für einen Montagsdienst kommt am Freitag, „1 Tag vorher“ am
-                  Sonntag. Für mehrere Zeitpunkte einfach eine weitere Erinnerung anlegen.
+                <label className={label}>
+                  Uhrzeit
+                  <select name="hour" defaultValue={mail.hour} className={input}>
+                    {HOUR_OPTIONS.map((h) => (
+                      <option key={h} value={h}>{h}:00 Uhr</option>
+                    ))}
+                  </select>
+                </label>
+                <span className={`${hint} self-end`}>
+                  Versand zur gewählten Uhrzeit (kann sich um bis zu eine Stunde verzögern). „1 Werktag vorher“ für einen
+                  Montagsdienst kommt am Freitag, „1 Tag vorher“ am Sonntag. Für mehrere Zeitpunkte einfach eine weitere
+                  Erinnerung anlegen.
                 </span>
               </fieldset>
             </>
