@@ -161,6 +161,14 @@ create table if not exists sessions (
   expires_at timestamptz not null
 );
 create index if not exists sessions_staff on sessions (staff_id);
+create table if not exists recurring_takes (
+  task_id int not null references special_tasks(id) on delete cascade,
+  date text not null,
+  staff_id int not null references staff(id) on delete cascade,
+  updated_by text not null,
+  updated_at timestamptz not null default now(),
+  primary key (task_id, date)
+);
 create table if not exists changelog (
   id serial primary key,
   period_id int references periods(id) on delete cascade,

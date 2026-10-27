@@ -39,7 +39,10 @@ export type Duty = { staff_id: number; weekday: number; kind: DutyKind; updated_
 export type DateException = { date: string; staff_id: number; substitute_id: number | null; updated_by: string; updated_at: string }
 /** zusätzlicher Dienst an einem einzelnen Datum */
 export type DateExtra = { date: string; staff_id: number; updated_by: string; updated_at: string }
-/** Sonderaufgabe ohne festes Datum (z. B. Vorlesungspodcast) oder wiederkehrend (z. B. jeden Montag Post holen) */
+/**
+ * Sonderaufgabe ohne festes Datum (z. B. Vorlesungspodcast, staff_id = zuständig) oder wiederkehrende Aufgabe
+ * (z. B. jeden Montag Post holen; repeat ≠ 'none'): die wird je Termin einzeln übernommen (recurring_takes).
+ */
 export type SpecialTask = {
   id: number
   name: string
@@ -233,17 +236,39 @@ export function taskOccursOn(t: SpecialTask, d: string, period: Period, open: (d
   return false
 }
 
+/** Wiederkehrende Aufgabe an einem Termin übernommen (jede Woche bzw. jeder Termin einzeln) */
+export type RecurringTake = { task_id: number; date: string; staff_id: number; updated_by: string; updated_at: string }
+
+export const listRecurringTakes = (periodId: number) =>
+  query<RecurringTake>(
+    `select r.task_id, r.date, r.staff_id, r.updated_by, r.updated_at
+     from recurring_takes r join special_tasks t on t.id = r.task_id where t.period_id = $1 order by r.date`,
+    [periodId],
+  )
+
+/** Alle Termine einer wiederkehrenden Aufgabe im Zeitraum */
+export function occurrences(t: SpecialTask, period: Period, closed: ClosedDay[]) {
+  const closedSet = new Set(closed.map((c) => c.date))
+  const open = (d: string) => !isWeekend(d) && !closedSet.has(d)
+  return eachDay(period.start_date, period.end_date).filter((d) => open(d) && taskOccursOn(t, d, period, open))
+}
+
 /**
- * Wiederkehrende Sonderaufgaben an Datum d, in der Form der Vorlesungen/Aufgaben (damit sie überall mit erscheinen).
- * Negative id, damit sie sich nicht mit Vorlesungen überschneiden.
+ * Wiederkehrende Aufgaben an Datum d, in der Form der Vorlesungen/Aufgaben (damit sie überall mit erscheinen),
+ * mit der Person, die diesen Termin übernommen hat. Negative id, damit sie sich nicht mit Vorlesungen überschneiden.
  */
-export function specialTasksOn(d: string, tasks: SpecialTask[], period: Period, open: (d: string) => boolean): DayLecture[] {
+export function specialTasksOn(
+  d: string, tasks: SpecialTask[], takes: RecurringTake[], period: Period, open: (d: string) => boolean,
+): DayLecture[] {
   return tasks
-    .filter((t) => t.repeat !== 'none' && taskOccursOn(t, d, period, open))
-    .map((t) => ({
-      id: -t.id, name: t.name, weekday: weekday(d), time: t.time, staff_id: t.staff_id, updated_by: t.updated_by,
-      updated_at: t.updated_at, regular_id: t.staff_id, absent: false,
-    }))
+    .filter((t) => t.repeat !== 'none' && open(d) && taskOccursOn(t, d, period, open))
+    .map((t) => {
+      const take = takes.find((x) => x.task_id === t.id && x.date === d)
+      return {
+        id: -t.id, name: t.name, weekday: weekday(d), time: t.time, staff_id: take?.staff_id ?? null,
+        updated_by: take?.updated_by ?? null, updated_at: take?.updated_at ?? null, regular_id: take?.staff_id ?? null, absent: false,
+      }
+    })
 }
 
 /**
@@ -259,8 +284,7 @@ export async function hiwisWithDuties() {
      union select staff_id from date_extras where date >= $1
      union select substitute_id from date_exceptions where date >= $1 and substitute_id is not null
      union select substitute_id from lecture_exceptions where date >= $1 and substitute_id is not null
-     union select t.staff_id from special_tasks t join periods p on p.id = t.period_id
-       where p.end_date >= $1 and t.repeat <> 'none' and t.staff_id is not null`,
+     union select staff_id from recurring_takes where date >= $1`,
     [today],
   )
   const ids = new Set(rows.map((r) => r.id))
@@ -527,11 +551,11 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const data = await Promise.all(
     periods.map(async (p) => {
-      const [closed, special] = await Promise.all([listClosedDays(p.year_id), listSpecialTasks(p.id)])
+      const [closed, special, takes] = await Promise.all([listClosedDays(p.year_id), listSpecialTasks(p.id), listRecurringTakes(p.id)])
       const closedSet = new Set(closed.map((c) => c.date))
       const open = (d: string) => !isWeekend(d) && !closedSet.has(d)
       // wiederkehrende Sonderaufgaben erscheinen wie Vorlesungen/Aufgaben am jeweiligen Tag
-      const recurring = (d: string) => specialTasksOn(d, special, p, open)
+      const recurring = (d: string) => specialTasksOn(d, special, takes, p, open)
       if (isLecture(p.kind)) {
         const [duties, exceptions, extras, lectures, lexc] = await Promise.all([
           listDuties(p.id), listExceptions(p.id), listExtras(p.id), listLectures(p.id), listLectureExceptions(p.id),

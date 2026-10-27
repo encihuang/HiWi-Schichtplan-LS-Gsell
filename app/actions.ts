@@ -11,7 +11,7 @@ import { encrypt, setSetting } from '@/lib/settings'
 import { sendTestReminder } from '@/lib/reminders'
 import {
   ABSENCE_LABEL, addLog, AVAILABILITY_LABELS, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears,
-  repeatText, sealNote, workdaysOf, type AvailabilityStatus, type DutyKind, type Repeat, type Role, type SpecialTask,
+  occurrences, repeatText, sealNote, workdaysOf, type AvailabilityStatus, type DutyKind, type Repeat, type Role, type SpecialTask,
 } from '@/lib/data'
 import { formatDate, PERIOD_KINDS, todayIso, WEEKDAYS, weekday, wsLecture, yearLabel, isLecture } from '@/lib/dates'
 import { endSessionsOf } from '@/lib/auth'
@@ -409,7 +409,7 @@ export async function lectureException(fd: FormData) {
   revalidatePath('/plan', 'layout')
 }
 
-// --- Sonderaufgaben (ohne Datum oder wiederkehrend) ------------------------------
+// --- Sonderaufgaben (ohne Datum) und wiederkehrende Aufgaben ------------------------
 
 /** Wiederholung aus dem Formular; null, wenn unvollständig */
 function parseRepeat(fd: FormData) {
@@ -426,39 +426,107 @@ function parseRepeat(fd: FormData) {
     if (!(dom >= 1 && dom <= 31)) return null
     return { repeat, weekday: null, day_of_month: dom, start_date: null, time }
   }
-  return { repeat: 'none', weekday: null, day_of_month: null, start_date: null, time: '' }
+  return null
 }
 
-const repeatLog = (r: NonNullable<ReturnType<typeof parseRepeat>>) =>
-  r.repeat === 'none' ? '' : ` (${repeatText({ ...r, repeat: r.repeat as Repeat } as SpecialTask)})`
+const repeatLabel = (r: NonNullable<ReturnType<typeof parseRepeat>>) => repeatText({ ...r, repeat: r.repeat as Repeat } as SpecialTask)
 
+/** Sonderaufgabe ohne festen Tag (eine Person für den ganzen Zeitraum) */
 export async function addSpecialTask(fd: FormData) {
+  const me = await requireShiftActor()
+  const period = await getPeriod(num(fd, 'period'))
+  const name = str(fd, 'name')
+  if (!period || !name) return
+  const take = fd.get('take') === 'on'
+  await query(
+    'insert into special_tasks (period_id, name, note, staff_id, updated_by, updated_at) values ($1, $2, $3, $4, $5, now())',
+    [period.id, name, str(fd, 'note'), take ? me.id : null, me.name],
+  )
+  await addLog(period.id, me.name, `Sonderaufgabe „${name}“ angelegt${take ? ' und übernommen' : ''}`)
+  revalidatePath('/', 'layout')
+}
+
+/** Wiederkehrende Aufgabe anlegen; übernommen wird sie je Termin */
+export async function addRecurringTask(fd: FormData) {
   const me = await requireShiftActor()
   const period = await getPeriod(num(fd, 'period'))
   const name = str(fd, 'name')
   const r = parseRepeat(fd)
   if (!period || !name || !r) return
-  const take = fd.get('take') === 'on'
   await query(
-    `insert into special_tasks (period_id, name, note, staff_id, updated_by, updated_at, repeat, weekday, day_of_month, start_date, time)
-     values ($1, $2, $3, $4, $5, now(), $6, $7, $8, $9, $10)`,
-    [period.id, name, str(fd, 'note'), take ? me.id : null, me.name, r.repeat, r.weekday, r.day_of_month, r.start_date, r.time],
+    `insert into special_tasks (period_id, name, note, updated_by, updated_at, repeat, weekday, day_of_month, start_date, time)
+     values ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9)`,
+    [period.id, name, str(fd, 'note'), me.name, r.repeat, r.weekday, r.day_of_month, r.start_date, r.time],
   )
-  await addLog(period.id, me.name, `Sonderaufgabe „${name}“${repeatLog(r)} angelegt${take ? ' und übernommen' : ''}`)
+  await addLog(period.id, me.name, `Wiederkehrende Aufgabe „${name}“ (${repeatLabel(r)}) angelegt`)
   revalidatePath('/', 'layout')
 }
 
-/** Wiederholung einer Sonderaufgabe ändern */
+/** Wiederholung ändern; Übernahmen an Tagen, die wegfallen, werden gelöscht */
 export async function setSpecialTaskRepeat(fd: FormData) {
   const me = await requireShiftActor()
   const r = parseRepeat(fd)
   if (!r) return
-  const [t] = await query<{ period_id: number; name: string }>(
+  const [t] = await query<SpecialTask & { period_id: number }>(
     `update special_tasks set repeat = $2, weekday = $3, day_of_month = $4, start_date = $5, time = $6, updated_by = $7, updated_at = now()
-     where id = $1 returning period_id, name`,
+     where id = $1 and repeat <> 'none' returning *`,
     [num(fd, 'task'), r.repeat, r.weekday, r.day_of_month, r.start_date, r.time, me.name],
   )
-  if (t) await logShift(t.period_id, me.name, `Sonderaufgabe „${t.name}“: ${r.repeat === 'none' ? 'ohne festen Tag' : repeatLog(r).slice(2, -1)}`)
+  if (!t) return
+  const period = await getPeriod(t.period_id)
+  if (period) {
+    const dates = occurrences(t, period, await listClosedDays(period.year_id))
+    await query('delete from recurring_takes where task_id = $1 and not (date = any($2))', [t.id, dates])
+  }
+  await logShift(t.period_id, me.name, `Wiederkehrende Aufgabe „${t.name}“: ${repeatLabel(r)}`)
+  revalidatePath('/', 'layout')
+}
+
+/** Termin einer wiederkehrenden Aufgabe: Aufgabe und Datum prüfen */
+async function recurringOn(fd: FormData) {
+  const date = isoOrNull(str(fd, 'date'))
+  const [t] = await query<SpecialTask & { period_id: number }>(`select * from special_tasks where id = $1 and repeat <> 'none'`, [num(fd, 'task')])
+  if (!t || !date) return null
+  const period = await getPeriod(t.period_id)
+  if (!period || !occurrences(t, period, await listClosedDays(period.year_id)).includes(date)) return null
+  return { t, date, label: `„${t.name}“ ${formatDate(date)}` }
+}
+
+/** Termin einer wiederkehrenden Aufgabe selbst übernehmen bzw. abgeben */
+export async function toggleRecurring(fd: FormData) {
+  const [me, x, planning] = await Promise.all([requireShiftActor(), recurringOn(fd), canEditOthers()])
+  if (!x) return
+  const [take] = await query<{ staff_id: number }>('select staff_id from recurring_takes where task_id = $1 and date = $2', [x.t.id, x.date])
+  if (take) {
+    if (take.staff_id !== me.id && !planning) return
+    await query('delete from recurring_takes where task_id = $1 and date = $2', [x.t.id, x.date])
+    const who = take.staff_id === me.id ? '' : ` (${(await getStaff(take.staff_id))?.name})`
+    await logShift(x.t.period_id, me.name, `${x.label} abgegeben${who}`)
+  } else {
+    const done = await query(
+      `insert into recurring_takes (task_id, date, staff_id, updated_by) values ($1, $2, $3, $4) on conflict do nothing returning 1`,
+      [x.t.id, x.date, me.id, me.name],
+    )
+    if (done.length) await logShift(x.t.period_id, me.name, `${x.label} übernommen`)
+  }
+  revalidatePath('/', 'layout')
+}
+
+/** Planungsmodus: Termin einer wiederkehrenden Aufgabe einer Person zuweisen oder freigeben */
+export async function assignRecurring(fd: FormData) {
+  const [who, x] = await Promise.all([planningAssignee(fd), recurringOn(fd)])
+  if (!who || !x) return
+  if (who.target) {
+    await query(
+      `insert into recurring_takes (task_id, date, staff_id, updated_by) values ($1, $2, $3, $4)
+       on conflict (task_id, date) do update set staff_id = $3, updated_by = $4, updated_at = now()`,
+      [x.t.id, x.date, who.target.id, who.me.name],
+    )
+    await logShift(x.t.period_id, who.me.name, `${x.label}: ${who.target.name} eingeteilt`)
+  } else {
+    await query('delete from recurring_takes where task_id = $1 and date = $2', [x.t.id, x.date])
+    await logShift(x.t.period_id, who.me.name, `${x.label} freigegeben`)
+  }
   revalidatePath('/', 'layout')
 }
 

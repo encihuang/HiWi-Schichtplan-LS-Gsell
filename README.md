@@ -33,9 +33,11 @@ vorlesungsfreier Zeit WiSe, Sommersemester und vorlesungsfreier Zeit SoSe. Übri
   Werktage vorher oder 1–3 Tage vorher, dann auch am Wochenende), Uhrzeit (6–22 Uhr) und Text; enthält Dienst und
   Vorlesungen/Aufgaben des Tages; Versand über den stündlichen Cron (GitHub Actions `.github/workflows/cron.yml`,
   da Vercel Cron im Hobby-Tarif nur täglich läuft)
-- Sonderaufgaben: ohne festen Tag oder wiederkehrend (jede Woche, alle 2 Wochen, jeden Monat am n. – sonst nächster
-  Werktag; optional mit Uhrzeit); wiederkehrende erscheinen an ihren Tagen in Übersicht, Kalender-Abo, `{dienste}` und
-  Erinnerungen
+- Sonderaufgaben ohne festen Tag: eine Person für den ganzen Zeitraum
+- Wiederkehrende Aufgaben (eigener Bereich auf der Planseite): jede Woche, alle 2 Wochen oder jeden Monat am n. (sonst
+  nächster Werktag), optional mit Uhrzeit; jeder Termin wird einzeln übernommen (jede Woche kann jemand anderes);
+  in der Übersicht (eigener Bereich mit den nächsten Terminen und an den Tagen), im Kalender-Abo, in `{dienste}` und
+  in den Erinnerungen
 - Übersicht: „Mehr anzeigen“ (+4 Wochen) und „Gesamten Zeitraum anzeigen“
 - Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin)
 
