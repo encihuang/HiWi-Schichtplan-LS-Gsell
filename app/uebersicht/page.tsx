@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { MailLink } from '@/components/mail-link'
 import { query } from '@/lib/db'
 import {
-  ABSENCE_LABEL, canSeePlan, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
+  ABSENCE_LABEL, canSeePlan, repeatText, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
   type Appointment, lectureText, type DayLecture,
   type Period, type Role, type RosterEntry, type Staff,
 } from '@/lib/data'
@@ -333,6 +333,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
                 <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                   <span className="min-w-0">
                     <span className="font-semibold">{t.name}</span>
+                    {t.repeat !== 'none' && <span className="ml-2 text-xs text-lmu-darker">↻ {repeatText(t)}</span>}
                     {t.note && <span className="block text-xs text-neutral-500">{t.note}</span>}
                   </span>
                   {s ? (

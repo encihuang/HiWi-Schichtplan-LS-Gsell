@@ -11,7 +11,7 @@ import { encrypt, setSetting } from '@/lib/settings'
 import { sendTestReminder } from '@/lib/reminders'
 import {
   ABSENCE_LABEL, addLog, AVAILABILITY_LABELS, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears,
-  sealNote, workdaysOf, type AvailabilityStatus, type DutyKind, type Role,
+  repeatText, sealNote, workdaysOf, type AvailabilityStatus, type DutyKind, type Repeat, type Role, type SpecialTask,
 } from '@/lib/data'
 import { formatDate, PERIOD_KINDS, todayIso, WEEKDAYS, weekday, wsLecture, yearLabel, isLecture } from '@/lib/dates'
 import { endSessionsOf } from '@/lib/auth'
@@ -409,19 +409,56 @@ export async function lectureException(fd: FormData) {
   revalidatePath('/plan', 'layout')
 }
 
-// --- Sonderaufgaben (ohne Datum) ---------------------------------------------
+// --- Sonderaufgaben (ohne Datum oder wiederkehrend) ------------------------------
+
+/** Wiederholung aus dem Formular; null, wenn unvollständig */
+function parseRepeat(fd: FormData) {
+  const repeat = str(fd, 'repeat')
+  const time = str(fd, 'time').slice(0, 40)
+  if (repeat === 'weekly' || repeat === 'biweekly') {
+    const day = num(fd, 'weekday')
+    if (!dayOk(day)) return null
+    const start = repeat === 'biweekly' ? isoOrNull(str(fd, 'start')) : null
+    return { repeat, weekday: day, day_of_month: null, start_date: start, time }
+  }
+  if (repeat === 'monthly') {
+    const dom = Math.round(num(fd, 'dayOfMonth'))
+    if (!(dom >= 1 && dom <= 31)) return null
+    return { repeat, weekday: null, day_of_month: dom, start_date: null, time }
+  }
+  return { repeat: 'none', weekday: null, day_of_month: null, start_date: null, time: '' }
+}
+
+const repeatLog = (r: NonNullable<ReturnType<typeof parseRepeat>>) =>
+  r.repeat === 'none' ? '' : ` (${repeatText({ ...r, repeat: r.repeat as Repeat } as SpecialTask)})`
 
 export async function addSpecialTask(fd: FormData) {
   const me = await requireShiftActor()
   const period = await getPeriod(num(fd, 'period'))
   const name = str(fd, 'name')
-  if (!period || !name) return
+  const r = parseRepeat(fd)
+  if (!period || !name || !r) return
   const take = fd.get('take') === 'on'
   await query(
-    'insert into special_tasks (period_id, name, note, staff_id, updated_by, updated_at) values ($1, $2, $3, $4, $5, now())',
-    [period.id, name, str(fd, 'note'), take ? me.id : null, me.name],
+    `insert into special_tasks (period_id, name, note, staff_id, updated_by, updated_at, repeat, weekday, day_of_month, start_date, time)
+     values ($1, $2, $3, $4, $5, now(), $6, $7, $8, $9, $10)`,
+    [period.id, name, str(fd, 'note'), take ? me.id : null, me.name, r.repeat, r.weekday, r.day_of_month, r.start_date, r.time],
   )
-  await addLog(period.id, me.name, `Sonderaufgabe „${name}“ angelegt${take ? ' und übernommen' : ''}`)
+  await addLog(period.id, me.name, `Sonderaufgabe „${name}“${repeatLog(r)} angelegt${take ? ' und übernommen' : ''}`)
+  revalidatePath('/', 'layout')
+}
+
+/** Wiederholung einer Sonderaufgabe ändern */
+export async function setSpecialTaskRepeat(fd: FormData) {
+  const me = await requireShiftActor()
+  const r = parseRepeat(fd)
+  if (!r) return
+  const [t] = await query<{ period_id: number; name: string }>(
+    `update special_tasks set repeat = $2, weekday = $3, day_of_month = $4, start_date = $5, time = $6, updated_by = $7, updated_at = now()
+     where id = $1 returning period_id, name`,
+    [num(fd, 'task'), r.repeat, r.weekday, r.day_of_month, r.start_date, r.time, me.name],
+  )
+  if (t) await logShift(t.period_id, me.name, `Sonderaufgabe „${t.name}“: ${r.repeat === 'none' ? 'ohne festen Tag' : repeatLog(r).slice(2, -1)}`)
   revalidatePath('/', 'layout')
 }
 

@@ -92,7 +92,8 @@ function timedEvent(uid: string, date: string, timeText: string, summary: string
 }
 
 const lectureEvent = (l: Lecture, date: string, summary: string, description: string) =>
-  timedEvent(`vl-${l.id}-${date}`, date, l.time, summary, description)
+  // negative id: wiederkehrende Sonderaufgabe
+  timedEvent(l.id < 0 ? `sa-${-l.id}-${date}` : `vl-${l.id}-${date}`, date, l.time, summary, description)
 
 /**
  * Termine für eine Person (staffId) oder den ganzen Plan (staffId = null).
