@@ -36,8 +36,9 @@ vorlesungsfreier Zeit WiSe, Sommersemester und vorlesungsfreier Zeit SoSe. Übri
 - Sonderaufgaben ohne festen Tag: eine Person für den ganzen Zeitraum
 - Wiederkehrende Aufgaben (eigener Bereich auf der Planseite): jede Woche, alle 2 Wochen oder jeden Monat am n. (sonst
   nächster Werktag), optional mit Uhrzeit; jeder Termin wird einzeln übernommen (jede Woche kann jemand anderes);
-  in der Übersicht (eigener Bereich mit den nächsten Terminen und an den Tagen), im Kalender-Abo, in `{dienste}` und
-  in den Erinnerungen
+  nur auf der Planseite der Hilfskräfte (nicht in der Übersicht) sowie im Kalender-Abo, in `{dienste}` und in den
+  Erinnerungen
+- Planseite und Verwaltung mit Seitennavigation zu den Bereichen
 - Übersicht: „Mehr anzeigen“ (+4 Wochen) und „Gesamten Zeitraum anzeigen“
 - Personen haben einen Bereich (Hilfskraft, Wiss. Mitarbeiter:in, Akad. Rat, Sekretariat, Lehrstuhlinhaberin)
 

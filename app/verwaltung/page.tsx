@@ -7,6 +7,7 @@ import { loadAbsenceTexts, loadMailConfig, loadMails, loadMailStates } from '@/l
 import { canStoreSecrets } from '@/lib/settings'
 import { query } from '@/lib/db'
 import { MailSettings } from '@/components/mail-settings'
+import { SideNav } from '@/components/side-nav'
 import { formatDate, formatDateTime, LMU_VORLESUNGSZEITEN_URL, PERIOD_LABELS, yearLabel } from '@/lib/dates'
 import {
   addAppointment, addClosedDay, addStaff, addStaffEmail, addYear, deleteAppointment, deleteStaff, deleteYear, endStaffSessions,
@@ -110,16 +111,7 @@ export default async function Admin() {
 
   return (
     <div className="lg:grid lg:grid-cols-[12rem_1fr] lg:gap-8">
-      <aside className="no-print mb-6 lg:mb-0">
-        <nav className="flex gap-1 overflow-x-auto rounded-lg bg-white p-1 text-sm shadow-sm lg:sticky lg:top-4 lg:flex-col lg:overflow-visible lg:p-2">
-          <div className="hidden px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-neutral-500 lg:block">Verwaltung</div>
-          {SECTIONS.map(([id, label]) => (
-            <a key={id} href={`#${id}`} className="shrink-0 rounded px-2 py-1.5 text-lmu-darker hover:bg-lmu-light">
-              {label}
-            </a>
-          ))}
-        </nav>
-      </aside>
+      <SideNav title="Verwaltung" items={SECTIONS} />
 
       <div className="min-w-0 space-y-10">
         <section id="ueberblick" className="scroll-mt-4">
