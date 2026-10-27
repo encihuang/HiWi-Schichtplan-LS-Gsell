@@ -1,14 +1,10 @@
-import { addSpecialTask, assignSpecialTask, deleteSpecialTask, setSpecialTaskRepeat, toggleSpecialTask } from '@/app/actions'
-import { repeatText, type Period, type SpecialTask } from '@/lib/data'
+import { addSpecialTask, assignSpecialTask, deleteSpecialTask, toggleSpecialTask } from '@/app/actions'
+import type { Period, SpecialTask } from '@/lib/data'
 import { formatDateTime } from '@/lib/dates'
 import { SlotButton, SubmitButton, type SlotState } from './slot-button'
 import { StaffSelect, type Person } from './staff-select'
-import { RepeatFields } from './repeat-fields'
 
-/**
- * Sonderaufgaben ohne festes Datum (z. B. Vorlesungspodcast) oder wiederkehrend (z. B. jeden Montag Post holen).
- * Wiederkehrende erscheinen an ihren Tagen in Übersicht, Kalender-Abo und Erinnerungen. Zählen nicht in die Berechnung.
- */
+/** Sonderaufgaben ohne festes Datum, z. B. Vorlesungspodcast. Zählen nicht in die Berechnung. */
 export function SpecialTasks({
   period, tasks, names, meId, canEditOthers, people,
 }: {
@@ -23,9 +19,7 @@ export function SpecialTasks({
     <div className="rounded-lg bg-white p-4 shadow-sm">
       <h2 className="text-lg font-semibold text-lmu-darker">Sonderaufgaben</h2>
       <p className="text-sm text-neutral-600">
-        Aufgaben ohne festen Tag (z. B. Vorlesungspodcast) oder regelmäßig wiederkehrend (z. B. jeden Montag Post holen,
-        jeden Monat am 1. Bestellung). Wiederkehrende erscheinen an ihren Tagen in der Übersicht, im Kalender-Abo und in
-        den Erinnerungen. Sonderaufgaben fließen nicht in die Berechnung ein.
+        Aufgaben ohne festen Tag, z. B. Vorlesungspodcast. Sie fließen nicht in die Berechnung ein.
       </p>
 
       {tasks.length > 0 && (
@@ -41,21 +35,8 @@ export function SpecialTasks({
             return (
               <li key={t.id} className="flex flex-col gap-2 py-2 sm:flex-row sm:items-center">
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold">{t.name}</span>
-                    {t.repeat !== 'none' && (
-                      <span className="rounded bg-lmu-light px-1.5 py-0.5 text-xs text-lmu-darker">↻ {repeatText(t)}</span>
-                    )}
-                  </div>
+                  <div className="font-semibold">{t.name}</div>
                   {t.note && <div className="text-sm text-neutral-600">{t.note}</div>}
-                  <details className="mt-1 text-sm">
-                    <summary className="cursor-pointer text-xs text-lmu hover:underline">Wiederholung ändern</summary>
-                    <form action={setSpecialTaskRepeat} className="mt-2 flex flex-wrap items-end gap-3 rounded bg-neutral-50 p-2">
-                      <input type="hidden" name="task" value={t.id} />
-                      <RepeatFields value={t.repeat} weekday={t.weekday} dayOfMonth={t.day_of_month} start={t.start_date} time={t.time} />
-                      <SubmitButton className="rounded bg-lmu px-3 py-1.5 font-medium text-white hover:bg-lmu-dark">Speichern</SubmitButton>
-                    </form>
-                  </details>
                   {t.updated_by && t.updated_at && (
                     <div className="text-xs text-neutral-400">
                       zuletzt geändert von {t.updated_by} am {formatDateTime(t.updated_at)}
@@ -104,7 +85,6 @@ export function SpecialTasks({
           <span className="text-xs text-neutral-600">Notiz (optional)</span>
           <input name="note" placeholder="z. B. Schnitt und Upload bis Freitag" className="rounded border border-neutral-300 px-2 py-1.5" />
         </label>
-        <RepeatFields />
         <label className="flex items-center gap-1.5 py-1.5">
           <input type="checkbox" name="take" className="accent-lmu" /> selbst übernehmen
         </label>

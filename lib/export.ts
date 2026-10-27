@@ -1,7 +1,7 @@
 import 'server-only'
 import {
   calcDaily, calcWeekly, coverageIssues, isHiwi, lectureRoster, DUTY_LABELS, getPeriod, getYear, listAvailability, listClosedDays, listDaily,
-  listDuties, listExceptions, listExtras, listLectures, listLog, listSpecialTasks, listStaff, repeatText, type AvailabilityStatus, type CalcResult,
+  listDuties, listExceptions, listExtras, listLectures, listLog, listRecurringTakes, listSpecialTasks, listStaff, occurrences, repeatText, type AvailabilityStatus, type CalcResult,
 } from './data'
 import {
   addDays, eachDay, formatDate, groupClosedDays, formatDateTime, isLecture, PERIOD_LABELS, PERIOD_SHORT, semesterLabel, WEEKDAYS, weekday,
@@ -152,14 +152,31 @@ export async function loadExport(periodId: number): Promise<ExportData | null> {
     calc = calcDaily(period, active, closed, slots)
   }
 
-  const tasks = await listSpecialTasks(period.id)
+  const [all, takes] = await Promise.all([listSpecialTasks(period.id), listRecurringTakes(period.id)])
+  const recurring = all.filter((t) => t.repeat !== 'none')
+  if (recurring.length) {
+    extra.push({
+      title: 'Wiederkehrende Aufgaben',
+      grid: [
+        ['Aufgabe', 'Wann', 'Termine'],
+        ...recurring.map((t) => [
+          t.name,
+          repeatText(t),
+          occurrences(t, period, closed)
+            .map((d) => {
+              const take = takes.find((x) => x.task_id === t.id && x.date === d)
+              return `${formatDate(d).slice(0, 6)} ${take ? names[take.staff_id] ?? '?' : 'offen'}`
+            })
+            .join(', '),
+        ]),
+      ],
+    })
+  }
+  const tasks = all.filter((t) => t.repeat === 'none')
   if (tasks.length) {
     extra.push({
       title: 'Sonderaufgaben',
-      grid: [
-        ['Aufgabe', 'Wann', 'Zuständig', 'Notiz'],
-        ...tasks.map((t) => [t.name, repeatText(t), t.staff_id ? names[t.staff_id] : 'offen', t.note]),
-      ],
+      grid: [['Aufgabe', 'Zuständig', 'Notiz'], ...tasks.map((t) => [t.name, t.staff_id ? names[t.staff_id] : 'offen', t.note])],
     })
   }
 

@@ -2,13 +2,14 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import {
   calcDaily, calcWeekly, getYear, listAppointments, listAvailability, listClosedDays, listDaily, listDuties, listLectureExceptions, listLectures, listLog,
-  canSeePlan, isHiwi, listExceptions, listExtras, listPeriods, listSpecialTasks, listStaff,
+  canSeePlan, isHiwi, listExceptions, listExtras, listPeriods, listRecurringTakes, listSpecialTasks, listStaff,
 } from '@/lib/data'
 import { canEditOthers, mayPlan, requireUser } from '@/lib/session'
 import { formatDate, formatDateTime, isLecture, PERIOD_LABELS, todayIso, yearLabel } from '@/lib/dates'
 import { WeeklyPlan } from '@/components/weekly-plan'
 import { DateExceptions } from '@/components/date-exceptions'
 import { SpecialTasks } from '@/components/special-tasks'
+import { RecurringTasks } from '@/components/recurring-tasks'
 import { Appointments } from '@/components/appointments'
 import { AbsencesPanel } from '@/components/absences-panel'
 import { DownloadIcon } from '@/components/download-icon'
@@ -47,7 +48,7 @@ export default async function PlanPage({
   const none = Promise.resolve([])
   const [
     staff, closed, log, others, specialTasks, appointments, weekly, availability, lectures, exceptions, extras, daily,
-    lectureExceptions,
+    lectureExceptions, recurringTakes,
   ] =
     await Promise.all([
       listStaff(),
@@ -63,6 +64,7 @@ export default async function PlanPage({
       lecture ? listExtras(period.id) : none,
       lecture ? none : listDaily(period.id),
       lecture ? listLectureExceptions(period.id) : none,
+      listRecurringTakes(period.id),
     ])
   const active = staff.filter((s) => s.active && isHiwi(s))
   const calc = lecture ? calcWeekly(period, active, closed, weekly, exceptions, extras) : calcDaily(period, active, closed, daily)
@@ -196,7 +198,17 @@ export default async function PlanPage({
       )}
 
       <section className="mt-6">
-        <SpecialTasks period={period} tasks={specialTasks} names={names} meId={me.id} canEditOthers={others} people={people} />
+        <RecurringTasks
+          period={period} tasks={specialTasks.filter((t) => t.repeat !== 'none')} takes={recurringTakes} closed={closed}
+          names={names} meId={me.id} canEditOthers={others} people={people}
+        />
+      </section>
+
+      <section className="mt-6">
+        <SpecialTasks
+          period={period} tasks={specialTasks.filter((t) => t.repeat === 'none')} names={names} meId={me.id} canEditOthers={others}
+          people={people}
+        />
       </section>
 
       <div className="mt-8 space-y-8">

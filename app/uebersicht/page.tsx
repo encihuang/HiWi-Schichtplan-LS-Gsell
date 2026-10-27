@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { MailLink } from '@/components/mail-link'
 import { query } from '@/lib/db'
 import {
-  ABSENCE_LABEL, canSeePlan, repeatText, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
+  ABSENCE_LABEL, canSeePlan, listClosedDays, listRecurringTakes, occurrences, repeatText, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
   type Appointment, lectureText, type DayLecture,
   type Period, type Role, type RosterEntry, type Staff,
 } from '@/lib/data'
@@ -14,6 +14,8 @@ import { DownloadIcon } from '@/components/download-icon'
 export const dynamic = 'force-dynamic'
 
 const WEEKS = 4
+/** Wiederkehrende Aufgaben: so viele kommende Termine anzeigen */
+const NEXT_OCCURRENCES = 4
 const MAX_WEEKS = 60
 /** höchstens so viele Zeiträume auf einmal (zwei Studienjahre) */
 const MAX_PERIODS = 8
@@ -223,7 +225,20 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const todayInfo = days.find((d) => d.date === today)
   // Sonderaufgaben des laufenden Zeitraums
   const currentPeriod = todayInfo?.period ?? days.find((d) => d.period)?.period
-  const tasks = currentPeriod ? await listSpecialTasks(currentPeriod.id) : []
+  const [special, takes, closedDays] = currentPeriod
+    ? await Promise.all([listSpecialTasks(currentPeriod.id), listRecurringTakes(currentPeriod.id), listClosedDays(currentPeriod.year_id)])
+    : [[], [], []]
+  const tasks = special.filter((t) => t.repeat === 'none')
+  // wiederkehrende Aufgaben: die nächsten Termine mit der Person, die sie übernommen hat
+  const recurring = special
+    .filter((t) => t.repeat !== 'none')
+    .map((t) => ({
+      t,
+      next: occurrences(t, currentPeriod!, closedDays)
+        .filter((d) => d >= today)
+        .slice(0, NEXT_OCCURRENCES)
+        .map((d) => ({ date: d, staff: byId.get(takes.find((x) => x.task_id === t.id && x.date === d)?.staff_id ?? 0) })),
+    }))
 
   return (
     <div className="space-y-8">
@@ -323,6 +338,44 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         </div>
       </section>
 
+      {recurring.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-lmu-darker">Wiederkehrende Aufgaben</h2>
+          <ul className="mt-2 divide-y divide-neutral-100 rounded-lg bg-white shadow-sm">
+            {recurring.map(({ t, next }) => (
+              <li key={t.id} className="px-3 py-2">
+                <div>
+                  <span className="font-semibold">{t.name}</span>
+                  <span className="ml-2 text-xs text-neutral-500">↻ {repeatText(t)}</span>
+                  {t.note && <span className="block text-xs text-neutral-500">{t.note}</span>}
+                </div>
+                {next.length === 0 ? (
+                  <p className="mt-1 text-sm text-neutral-500">Keine weiteren Termine in diesem Zeitraum.</p>
+                ) : (
+                  <ul className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+                    {next.map(({ date, staff }) => (
+                      <li key={date} className={`flex items-center gap-1.5 rounded px-2 py-1 text-sm ${date === today ? 'bg-lmu-light' : 'bg-neutral-50'}`}>
+                        <span className="tabular-nums text-neutral-500">
+                          {WEEKDAYS[weekday(date) - 1].slice(0, 2)} {formatDate(date).slice(0, 6)}
+                        </span>
+                        {staff ? (
+                          <>
+                            <span className="truncate font-medium">{staff.name}</span>
+                            <MailLink email={staff.email} name={staff.name} />
+                          </>
+                        ) : (
+                          <span className="font-semibold text-amber-700">noch niemand</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {tasks.length > 0 && (
         <section>
           <h2 className="text-lg font-semibold text-lmu-darker">Sonderaufgaben</h2>
@@ -333,7 +386,6 @@ export default async function Overview({ searchParams }: { searchParams: Promise
                 <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                   <span className="min-w-0">
                     <span className="font-semibold">{t.name}</span>
-                    {t.repeat !== 'none' && <span className="ml-2 text-xs text-lmu-darker">↻ {repeatText(t)}</span>}
                     {t.note && <span className="block text-xs text-neutral-500">{t.note}</span>}
                   </span>
                   {s ? (
