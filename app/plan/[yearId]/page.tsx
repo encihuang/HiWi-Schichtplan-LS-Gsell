@@ -10,6 +10,7 @@ import { WeeklyPlan } from '@/components/weekly-plan'
 import { DateExceptions } from '@/components/date-exceptions'
 import { SpecialTasks } from '@/components/special-tasks'
 import { RecurringTasks } from '@/components/recurring-tasks'
+import { SideNav } from '@/components/side-nav'
 import { Appointments } from '@/components/appointments'
 import { AbsencesPanel } from '@/components/absences-panel'
 import { DownloadIcon } from '@/components/download-icon'
@@ -73,161 +74,174 @@ export default async function PlanPage({
   const here = `/plan/${year.id}?tab=${period.kind}`
   const last = log[0]
 
+  const sections: [string, string][] = [
+    ['plan', lecture ? 'Wochenplan und Kalender' : 'Dienstplan'],
+    ...(appointments.length ? [['termine', 'Termine'] as [string, string]] : []),
+    ...(isHiwi(me) ? [['abwesenheiten', 'Abwesenheiten'] as [string, string]] : []),
+    ['wiederkehrend', 'Wiederkehrende Aufgaben'],
+    ['sonderaufgaben', 'Sonderaufgaben'],
+    ['berechnung', 'Berechnung'],
+    ['verlauf', 'Letzte Änderungen'],
+  ]
+
   return (
-    <div>
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="text-xl sm:text-2xl font-bold text-lmu-darker">
-          <Link href="/plan" className="text-neutral-400 hover:text-lmu font-normal">Studienjahre</Link>
-          <span className="text-neutral-300 mx-2">/</span>
-          {yearLabel(year.start_year)}
-        </h1>
-        <div className="flex flex-wrap gap-2 text-sm no-print">
-          {mayPlan(me) && (
-          <form action={setPlanningMode}>
-            <input type="hidden" name="on" value={others ? '' : '1'} />
-            <input type="hidden" name="back" value={here} />
-            <SubmitButton
-              className={`rounded border px-3 py-1.5 font-medium ${
-                others ? 'border-amber-500 bg-amber-400 text-amber-950 hover:bg-amber-300' : 'border-lmu text-lmu-darker hover:bg-lmu-light'
+    <div className="lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-6">
+      <SideNav title={PERIOD_LABELS[period.kind]} items={sections} />
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="text-xl sm:text-2xl font-bold text-lmu-darker">
+            <Link href="/plan" className="text-neutral-400 hover:text-lmu font-normal">Studienjahre</Link>
+            <span className="text-neutral-300 mx-2">/</span>
+            {yearLabel(year.start_year)}
+          </h1>
+          <div className="flex flex-wrap gap-2 text-sm no-print">
+            {mayPlan(me) && (
+            <form action={setPlanningMode}>
+              <input type="hidden" name="on" value={others ? '' : '1'} />
+              <input type="hidden" name="back" value={here} />
+              <SubmitButton
+                className={`rounded border px-3 py-1.5 font-medium ${
+                  others ? 'border-amber-500 bg-amber-400 text-amber-950 hover:bg-amber-300' : 'border-lmu text-lmu-darker hover:bg-lmu-light'
+                }`}
+              >
+                {others ? 'Planungsmodus beenden' : 'Planungsmodus'}
+              </SubmitButton>
+            </form>
+            )}
+            <a href={`/export/${period.id}/pdf`} className="inline-flex items-center gap-1.5 rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+              <DownloadIcon /> PDF herunterladen
+            </a>
+            <a href={`/export/${period.id}/xlsx`} className="inline-flex items-center gap-1.5 rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+              <DownloadIcon /> Excel herunterladen
+            </a>
+            <Link href="/einstellungen#kalender" className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+              Kalender abonnieren
+            </Link>
+          </div>
+        </div>
+
+        <nav className="mt-4 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-1 sm:border-b sm:border-neutral-200">
+          {periods.map((p) => (
+            <Link
+              key={p.id}
+              href={`/plan/${year.id}?tab=${p.kind}`}
+              className={`rounded px-3 py-2 text-xs font-medium border-2 sm:-mb-px sm:rounded-b-none sm:border-0 sm:border-b-4 sm:px-4 sm:text-sm ${
+                p.id === period.id
+                  ? 'border-lmu text-lmu-darker bg-white'
+                  : 'border-transparent bg-white/60 text-neutral-600 hover:text-lmu-darker sm:bg-transparent sm:hover:bg-white/60'
               }`}
             >
-              {others ? 'Planungsmodus beenden' : 'Planungsmodus'}
-            </SubmitButton>
-          </form>
-          )}
-          <a href={`/export/${period.id}/pdf`} className="inline-flex items-center gap-1.5 rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
-            <DownloadIcon /> PDF herunterladen
-          </a>
-          <a href={`/export/${period.id}/xlsx`} className="inline-flex items-center gap-1.5 rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
-            <DownloadIcon /> Excel herunterladen
-          </a>
-          <Link href="/einstellungen#kalender" className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
-            Kalender abonnieren
-          </Link>
-        </div>
-      </div>
+              <LinkPending>
+                {PERIOD_LABELS[p.kind]}
+                <span className="block text-[11px] sm:text-xs font-normal text-neutral-500 tabular-nums">
+                  {formatDate(p.start_date)} – {formatDate(p.end_date)}
+                </span>
+              </LinkPending>
+            </Link>
+          ))}
+        </nav>
 
-      <nav className="mt-4 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-1 sm:border-b sm:border-neutral-200">
-        {periods.map((p) => (
-          <Link
-            key={p.id}
-            href={`/plan/${year.id}?tab=${p.kind}`}
-            className={`rounded px-3 py-2 text-xs font-medium border-2 sm:-mb-px sm:rounded-b-none sm:border-0 sm:border-b-4 sm:px-4 sm:text-sm ${
-              p.id === period.id
-                ? 'border-lmu text-lmu-darker bg-white'
-                : 'border-transparent bg-white/60 text-neutral-600 hover:text-lmu-darker sm:bg-transparent sm:hover:bg-white/60'
-            }`}
-          >
-            <LinkPending>
-              {PERIOD_LABELS[p.kind]}
-              <span className="block text-[11px] sm:text-xs font-normal text-neutral-500 tabular-nums">
-                {formatDate(p.start_date)} – {formatDate(p.end_date)}
-              </span>
-            </LinkPending>
-          </Link>
-        ))}
-      </nav>
-
-      {!others && !isHiwi(me) && (
-        <div className="mt-3 rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm text-neutral-700" role="status">
-          <strong>Nur Ansicht:</strong> Schichten übernehmen die studentischen Hilfskräfte selbst. Zum Einteilen den
-          Planungsmodus einschalten.
-        </div>
-      )}
-
-      {others && (
-        <div className="mt-3 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2.5 text-sm text-amber-950" role="status">
-          <strong>Planungsmodus aktiv:</strong> Du kannst Verfügbarkeiten und Schichten aller Hilfskräfte bearbeiten.
-          Änderungen werden mit deinem Namen im Verlauf gespeichert.
-        </div>
-      )}
-
-      <p className="mt-3 text-sm text-neutral-600">
-        {last ? (
-          <>
-            Zuletzt geändert von <strong>{last.actor}</strong> am {formatDateTime(last.at)}
-          </>
-        ) : (
-          'Noch keine Änderungen.'
+        {!others && !isHiwi(me) && (
+          <div className="mt-3 rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm text-neutral-700" role="status">
+            <strong>Nur Ansicht:</strong> Schichten übernehmen die studentischen Hilfskräfte selbst. Zum Einteilen den
+            Planungsmodus einschalten.
+          </div>
         )}
-      </p>
 
-      <section className="mt-4">
-        {lecture ? (
-          <WeeklyPlan
-            period={period}
-            staff={calc.rows.map((r) => r.staff)}
-            duties={weekly}
-            availability={availability}
-            lectures={lectures}
-            calendar={
-              <DateExceptions
-                period={period}
-                duties={weekly}
-                exceptions={exceptions}
-                extras={extras}
-                closed={closed}
-                appointments={appointments}
-                lectures={lectures}
-                lectureExceptions={lectureExceptions}
-                names={names}
-                meId={me.id}
-                planning={others}
-                people={people}
-              />
-            }
-            names={names}
-            meId={me.id}
-            canEditOthers={others}
+        {others && (
+          <div className="mt-3 rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2.5 text-sm text-amber-950" role="status">
+            <strong>Planungsmodus aktiv:</strong> Du kannst Verfügbarkeiten und Schichten aller Hilfskräfte bearbeiten.
+            Änderungen werden mit deinem Namen im Verlauf gespeichert.
+          </div>
+        )}
+
+        <p className="mt-3 text-sm text-neutral-600">
+          {last ? (
+            <>
+              Zuletzt geändert von <strong>{last.actor}</strong> am {formatDateTime(last.at)}
+            </>
+          ) : (
+            'Noch keine Änderungen.'
+          )}
+        </p>
+
+        <section id="plan" className="mt-4 scroll-mt-4">
+          {lecture ? (
+            <WeeklyPlan
+              period={period}
+              staff={calc.rows.map((r) => r.staff)}
+              duties={weekly}
+              availability={availability}
+              lectures={lectures}
+              calendar={
+                <DateExceptions
+                  period={period}
+                  duties={weekly}
+                  exceptions={exceptions}
+                  extras={extras}
+                  closed={closed}
+                  appointments={appointments}
+                  lectures={lectures}
+                  lectureExceptions={lectureExceptions}
+                  names={names}
+                  meId={me.id}
+                  planning={others}
+                  people={people}
+                />
+              }
+              names={names}
+              meId={me.id}
+              canEditOthers={others}
+              people={people}
+            />
+          ) : (
+            <DailyPlan period={period} slots={daily} closed={closed} appointments={appointments} names={names} meId={me.id} canEditOthers={others} people={people} />
+          )}
+        </section>
+
+        <section id="termine" className="mt-6 scroll-mt-4 empty:hidden">
+          <Appointments period={period} appointments={appointments} planning={others} />
+        </section>
+
+        {isHiwi(me) && (
+          <section className="mt-6">
+            <h2 className="mb-3 text-lg font-semibold text-lmu-darker">Abwesenheiten</h2>
+            <AbsencesPanel me={me} neu={neu} back={here} />
+          </section>
+        )}
+
+        <section id="wiederkehrend" className="mt-6 scroll-mt-4">
+          <RecurringTasks
+            period={period} tasks={specialTasks.filter((t) => t.repeat !== 'none')} takes={recurringTakes} closed={closed}
+            names={names} meId={me.id} canEditOthers={others} people={people}
+          />
+        </section>
+
+        <section id="sonderaufgaben" className="mt-6 scroll-mt-4">
+          <SpecialTasks
+            period={period} tasks={specialTasks.filter((t) => t.repeat === 'none')} names={names} meId={me.id} canEditOthers={others}
             people={people}
           />
-        ) : (
-          <DailyPlan period={period} slots={daily} closed={closed} appointments={appointments} names={names} meId={me.id} canEditOthers={others} people={people} />
-        )}
-      </section>
-
-      <section className="mt-6 empty:hidden">
-        <Appointments period={period} appointments={appointments} planning={others} />
-      </section>
-
-      {isHiwi(me) && (
-        <section className="mt-6">
-          <h2 className="mb-3 text-lg font-semibold text-lmu-darker">Abwesenheiten</h2>
-          <AbsencesPanel me={me} neu={neu} back={here} />
         </section>
-      )}
 
-      <section className="mt-6">
-        <RecurringTasks
-          period={period} tasks={specialTasks.filter((t) => t.repeat !== 'none')} takes={recurringTakes} closed={closed}
-          names={names} meId={me.id} canEditOthers={others} people={people}
-        />
-      </section>
-
-      <section className="mt-6">
-        <SpecialTasks
-          period={period} tasks={specialTasks.filter((t) => t.repeat === 'none')} names={names} meId={me.id} canEditOthers={others}
-          people={people}
-        />
-      </section>
-
-      <div className="mt-8 space-y-8">
-        <section>
-          <h2 className="text-lg font-semibold text-lmu-darker">Berechnung</h2>
-          <CalcTable calc={calc} period={period} lecture={lecture} meId={me.id} />
-        </section>
-        <section>
-          <h2 className="text-lg font-semibold text-lmu-darker">Letzte Änderungen</h2>
-          <ul className="mt-2 max-w-2xl divide-y divide-neutral-200 rounded-lg bg-white text-sm shadow-sm">
-            {log.length === 0 && <li className="p-3 text-neutral-500">Noch keine.</li>}
-            {log.map((l, i) => (
-              <li key={i} className="p-3">
-                <span className="font-medium">{l.actor}</span>: {l.message}
-                <span className="block text-xs text-neutral-500">{formatDateTime(l.at)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <div className="mt-8 space-y-8">
+          <section id="berechnung" className="scroll-mt-4">
+            <h2 className="text-lg font-semibold text-lmu-darker">Berechnung</h2>
+            <CalcTable calc={calc} period={period} lecture={lecture} meId={me.id} />
+          </section>
+          <section id="verlauf" className="scroll-mt-4">
+            <h2 className="text-lg font-semibold text-lmu-darker">Letzte Änderungen</h2>
+            <ul className="mt-2 max-w-2xl divide-y divide-neutral-200 rounded-lg bg-white text-sm shadow-sm">
+              {log.length === 0 && <li className="p-3 text-neutral-500">Noch keine.</li>}
+              {log.map((l, i) => (
+                <li key={i} className="p-3">
+                  <span className="font-medium">{l.actor}</span>: {l.message}
+                  <span className="block text-xs text-neutral-500">{formatDateTime(l.at)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
       </div>
     </div>
   )

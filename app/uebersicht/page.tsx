@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { MailLink } from '@/components/mail-link'
 import { query } from '@/lib/db'
 import {
-  ABSENCE_LABEL, canSeePlan, listClosedDays, listRecurringTakes, occurrences, repeatText, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
+  ABSENCE_LABEL, canSeePlan, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
   type Appointment, lectureText, type DayLecture,
   type Period, type Role, type RosterEntry, type Staff,
 } from '@/lib/data'
@@ -14,8 +14,6 @@ import { DownloadIcon } from '@/components/download-icon'
 export const dynamic = 'force-dynamic'
 
 const WEEKS = 4
-/** Wiederkehrende Aufgaben: so viele kommende Termine anzeigen */
-const NEXT_OCCURRENCES = 4
 const MAX_WEEKS = 60
 /** höchstens so viele Zeiträume auf einmal (zwei Studienjahre) */
 const MAX_PERIODS = 8
@@ -38,6 +36,9 @@ function Appointments({ items, large = false }: { items: Appointment[]; large?: 
     </ul>
   )
 }
+
+/** Nur Vorlesungen/Aufgaben – wiederkehrende Aufgaben (negative id) erscheinen nur auf der Planseite der Hilfskräfte */
+const lecturesOnly = (items: DayLecture[]) => items.filter((l) => l.id > 0)
 
 /** Vorlesungen Prof. Gsell und weitere Aufgaben an einem Tag (mit Vertretungen) */
 function Tasks({ items, names, large = false }: { items: DayLecture[]; names: Record<number, string>; large?: boolean }) {
@@ -225,20 +226,8 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const todayInfo = days.find((d) => d.date === today)
   // Sonderaufgaben des laufenden Zeitraums
   const currentPeriod = todayInfo?.period ?? days.find((d) => d.period)?.period
-  const [special, takes, closedDays] = currentPeriod
-    ? await Promise.all([listSpecialTasks(currentPeriod.id), listRecurringTakes(currentPeriod.id), listClosedDays(currentPeriod.year_id)])
-    : [[], [], []]
-  const tasks = special.filter((t) => t.repeat === 'none')
-  // wiederkehrende Aufgaben: die nächsten Termine mit der Person, die sie übernommen hat
-  const recurring = special
-    .filter((t) => t.repeat !== 'none')
-    .map((t) => ({
-      t,
-      next: occurrences(t, currentPeriod!, closedDays)
-        .filter((d) => d >= today)
-        .slice(0, NEXT_OCCURRENCES)
-        .map((d) => ({ date: d, staff: byId.get(takes.find((x) => x.task_id === t.id && x.date === d)?.staff_id ?? 0) })),
-    }))
+  // Sonderaufgaben ohne festen Tag; wiederkehrende Aufgaben stehen nur auf der Planseite der Hilfskräfte
+  const tasks = currentPeriod ? (await listSpecialTasks(currentPeriod.id)).filter((t) => t.repeat === 'none') : []
 
   return (
     <div className="space-y-8">
@@ -267,7 +256,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           ) : (
             <People entries={todayInfo.entries} byId={byId} large />
           )}
-          <Tasks items={todayInfo?.lectures ?? []} names={nameMap} large />
+          <Tasks items={lecturesOnly(todayInfo?.lectures ?? [])} names={nameMap} large />
           <Appointments items={todayInfo?.appointments ?? []} large />
           <Away items={todayInfo?.absences ?? []} names={byId} large />
         </div>
@@ -306,7 +295,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
                   ) : (
                     <People entries={d.entries} byId={byId} />
                   )}
-                  <Tasks items={d.lectures} names={nameMap} />
+                  <Tasks items={lecturesOnly(d.lectures)} names={nameMap} />
                   <Appointments items={d.appointments} />
                   <Away items={d.absences} names={byId} />
                 </div>
@@ -337,44 +326,6 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           )}
         </div>
       </section>
-
-      {recurring.length > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold text-lmu-darker">Wiederkehrende Aufgaben</h2>
-          <ul className="mt-2 divide-y divide-neutral-100 rounded-lg bg-white shadow-sm">
-            {recurring.map(({ t, next }) => (
-              <li key={t.id} className="px-3 py-2">
-                <div>
-                  <span className="font-semibold">{t.name}</span>
-                  <span className="ml-2 text-xs text-neutral-500">↻ {repeatText(t)}</span>
-                  {t.note && <span className="block text-xs text-neutral-500">{t.note}</span>}
-                </div>
-                {next.length === 0 ? (
-                  <p className="mt-1 text-sm text-neutral-500">Keine weiteren Termine in diesem Zeitraum.</p>
-                ) : (
-                  <ul className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-                    {next.map(({ date, staff }) => (
-                      <li key={date} className={`flex items-center gap-1.5 rounded px-2 py-1 text-sm ${date === today ? 'bg-lmu-light' : 'bg-neutral-50'}`}>
-                        <span className="tabular-nums text-neutral-500">
-                          {WEEKDAYS[weekday(date) - 1].slice(0, 2)} {formatDate(date).slice(0, 6)}
-                        </span>
-                        {staff ? (
-                          <>
-                            <span className="truncate font-medium">{staff.name}</span>
-                            <MailLink email={staff.email} name={staff.name} />
-                          </>
-                        ) : (
-                          <span className="font-semibold text-amber-700">noch niemand</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       {tasks.length > 0 && (
         <section>
