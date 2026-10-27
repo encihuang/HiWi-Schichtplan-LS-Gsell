@@ -1,7 +1,7 @@
 import 'server-only'
 import {
   calcDaily, calcWeekly, coverageIssues, isHiwi, lectureRoster, DUTY_LABELS, getPeriod, getYear, listAvailability, listClosedDays, listDaily,
-  listDuties, listExceptions, listExtras, listLectures, listLog, listSpecialTasks, listStaff, type AvailabilityStatus, type CalcResult,
+  listDuties, listExceptions, listExtras, listLectures, listLog, listSpecialTasks, listStaff, repeatText, type AvailabilityStatus, type CalcResult,
 } from './data'
 import {
   addDays, eachDay, formatDate, groupClosedDays, formatDateTime, isLecture, PERIOD_LABELS, PERIOD_SHORT, semesterLabel, WEEKDAYS, weekday,
@@ -156,7 +156,10 @@ export async function loadExport(periodId: number): Promise<ExportData | null> {
   if (tasks.length) {
     extra.push({
       title: 'Sonderaufgaben',
-      grid: [['Aufgabe', 'Zuständig', 'Notiz'], ...tasks.map((t) => [t.name, t.staff_id ? names[t.staff_id] : 'offen', t.note])],
+      grid: [
+        ['Aufgabe', 'Wann', 'Zuständig', 'Notiz'],
+        ...tasks.map((t) => [t.name, repeatText(t), t.staff_id ? names[t.staff_id] : 'offen', t.note]),
+      ],
     })
   }
 

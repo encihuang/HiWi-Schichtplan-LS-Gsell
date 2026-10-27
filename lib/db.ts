@@ -202,6 +202,12 @@ const MIGRATIONS = [
   // Kalender-Abo: nur noch SHA-256 des Schlüssels zum Nachschlagen, der Schlüssel selbst verschlüsselt
   `alter table staff add column if not exists calendar_hash text`,
   `create unique index if not exists staff_calendar_hash on staff (calendar_hash)`,
+  // Sonderaufgaben: ohne festen Tag oder wiederkehrend (wöchentlich, alle 2 Wochen, monatlich)
+  `alter table special_tasks add column if not exists repeat text not null default 'none'`,
+  `alter table special_tasks add column if not exists weekday int`,
+  `alter table special_tasks add column if not exists day_of_month int`,
+  `alter table special_tasks add column if not exists start_date text`,
+  `alter table special_tasks add column if not exists time text not null default ''`,
   // Abwesenheiten: keine Unterscheidung mehr nach Art; Notiz verschlüsselt (AES-256-GCM)
   `alter table absences alter column kind set default 'sonstiges'`,
   // Ansprechpartner/Support (weekly_slots) -> Dienstarten: allein = Alle Aufgaben, zu zweit = Geteilt

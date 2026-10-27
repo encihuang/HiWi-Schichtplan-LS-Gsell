@@ -3,7 +3,7 @@ import { query } from './db'
 import { canStoreSecrets, randomToken, seal, sha256Hex, unseal } from './crypto'
 import {
   academicYearPeriods, addDays, christmasBreakBetween, eachDay, holidaysBetween, isLecture, isWeekend, PERIOD_KINDS, todayIso,
-  weekday, type PeriodKind,
+  weekday, WEEKDAYS, formatDate, type PeriodKind,
 } from './dates'
 
 export type Staff = {
@@ -39,8 +39,30 @@ export type Duty = { staff_id: number; weekday: number; kind: DutyKind; updated_
 export type DateException = { date: string; staff_id: number; substitute_id: number | null; updated_by: string; updated_at: string }
 /** zusätzlicher Dienst an einem einzelnen Datum */
 export type DateExtra = { date: string; staff_id: number; updated_by: string; updated_at: string }
-/** Sonderaufgabe ohne festes Datum (z. B. Vorlesungspodcast) */
-export type SpecialTask = { id: number; name: string; note: string; staff_id: number | null; updated_by: string | null; updated_at: string | null }
+/** Sonderaufgabe ohne festes Datum (z. B. Vorlesungspodcast) oder wiederkehrend (z. B. jeden Montag Post holen) */
+export type SpecialTask = {
+  id: number
+  name: string
+  note: string
+  staff_id: number | null
+  updated_by: string | null
+  updated_at: string | null
+  repeat: Repeat
+  /** wöchentlich / alle 2 Wochen: 1 = Montag … 5 = Freitag */
+  weekday: number | null
+  /** monatlich: Tag im Monat (1–31; in kürzeren Monaten der letzte Tag) */
+  day_of_month: number | null
+  /** alle 2 Wochen: erster Termin (sonst ab Beginn des Zeitraums) */
+  start_date: string | null
+  time: string
+}
+export type Repeat = 'none' | 'weekly' | 'biweekly' | 'monthly'
+export const REPEAT_LABELS: Record<Repeat, string> = {
+  none: 'ohne festen Tag',
+  weekly: 'jede Woche',
+  biweekly: 'alle 2 Wochen',
+  monthly: 'jeden Monat',
+}
 export type AvailabilityStatus = 'ok' | 'ungern' | 'nein'
 export type Availability = { staff_id: number; weekday: number; status: AvailabilityStatus }
 export type Lecture = {
@@ -135,7 +157,8 @@ export const listExtras = (periodId: number) =>
 
 export const listSpecialTasks = (periodId: number) =>
   query<SpecialTask>(
-    'select id, name, note, staff_id, updated_by, updated_at from special_tasks where period_id = $1 order by id',
+    `select id, name, note, staff_id, updated_by, updated_at, repeat, weekday, day_of_month, start_date, time
+     from special_tasks where period_id = $1 order by id`,
     [periodId],
   )
 
@@ -175,6 +198,54 @@ export function lectureText(l: DayLecture, names: Record<number, string>) {
   return `${title}: ${l.staff_id ? names[l.staff_id] ?? '?' : 'noch niemand'}`
 }
 
+/** „jeden Dienstag, 10 Uhr“, „alle 2 Wochen dienstags ab 03.11.2026“, „jeden Monat am 15.“ */
+export function repeatText(t: SpecialTask) {
+  const time = t.time ? `, ${t.time}` : ''
+  const day = t.weekday ? WEEKDAYS[t.weekday - 1] : '?'
+  if (t.repeat === 'weekly') return `jeden ${day}${time}`
+  if (t.repeat === 'biweekly') {
+    return `alle 2 Wochen ${day.toLowerCase()}s${t.start_date ? ` ab ${formatDate(t.start_date)}` : ''}${time}`
+  }
+  if (t.repeat === 'monthly') return `jeden Monat am ${t.day_of_month}.${time} (oder nächster Werktag)`
+  return REPEAT_LABELS.none
+}
+
+const mondayOf = (d: string) => addDays(d, 1 - weekday(d))
+
+/** Findet eine wiederkehrende Sonderaufgabe an Werktag d statt? (open = Werktag ohne Feier-/Schließtag) */
+export function taskOccursOn(t: SpecialTask, d: string, period: Period, open: (d: string) => boolean) {
+  if (d < period.start_date || d > period.end_date) return false
+  if (t.repeat === 'weekly') return weekday(d) === t.weekday
+  if (t.repeat === 'biweekly') {
+    const first = t.start_date && t.start_date >= period.start_date ? t.start_date : period.start_date
+    if (weekday(d) !== t.weekday || d < first) return false
+    const weeks = Math.round((Date.parse(mondayOf(d)) - Date.parse(mondayOf(first))) / (7 * 864e5))
+    return weeks % 2 === 0
+  }
+  if (t.repeat === 'monthly' && t.day_of_month) {
+    // Tag im Monat; fällt er auf ein Wochenende oder einen freien Tag, dann der nächste Werktag
+    const [y, m] = d.split('-').map(Number)
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate()
+    let x = `${d.slice(0, 8)}${String(Math.min(t.day_of_month, last)).padStart(2, '0')}`
+    for (let i = 0; i < 10 && !open(x); i++) x = addDays(x, 1)
+    return x === d
+  }
+  return false
+}
+
+/**
+ * Wiederkehrende Sonderaufgaben an Datum d, in der Form der Vorlesungen/Aufgaben (damit sie überall mit erscheinen).
+ * Negative id, damit sie sich nicht mit Vorlesungen überschneiden.
+ */
+export function specialTasksOn(d: string, tasks: SpecialTask[], period: Period, open: (d: string) => boolean): DayLecture[] {
+  return tasks
+    .filter((t) => t.repeat !== 'none' && taskOccursOn(t, d, period, open))
+    .map((t) => ({
+      id: -t.id, name: t.name, weekday: weekday(d), time: t.time, staff_id: t.staff_id, updated_by: t.updated_by,
+      updated_at: t.updated_at, regular_id: t.staff_id, absent: false,
+    }))
+}
+
 /**
  * Aktive Hilfskräfte, die heute oder später etwas zu tun haben: Wochendienst, Vorlesung/Aufgabe, Dienst in der
  * vorlesungsfreien Zeit, Zusatzdienst oder Vertretung (in laufenden oder kommenden Zeiträumen).
@@ -187,7 +258,9 @@ export async function hiwisWithDuties() {
      union select staff_id from daily_slots where date >= $1
      union select staff_id from date_extras where date >= $1
      union select substitute_id from date_exceptions where date >= $1 and substitute_id is not null
-     union select substitute_id from lecture_exceptions where date >= $1 and substitute_id is not null`,
+     union select substitute_id from lecture_exceptions where date >= $1 and substitute_id is not null
+     union select t.staff_id from special_tasks t join periods p on p.id = t.period_id
+       where p.end_date >= $1 and t.repeat <> 'none' and t.staff_id is not null`,
     [today],
   )
   const ids = new Set(rows.map((r) => r.id))
@@ -454,7 +527,11 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
   const names = Object.fromEntries(staff.map((s) => [s.id, s.name]))
   const data = await Promise.all(
     periods.map(async (p) => {
-      const closed = await listClosedDays(p.year_id)
+      const [closed, special] = await Promise.all([listClosedDays(p.year_id), listSpecialTasks(p.id)])
+      const closedSet = new Set(closed.map((c) => c.date))
+      const open = (d: string) => !isWeekend(d) && !closedSet.has(d)
+      // wiederkehrende Sonderaufgaben erscheinen wie Vorlesungen/Aufgaben am jeweiligen Tag
+      const recurring = (d: string) => specialTasksOn(d, special, p, open)
       if (isLecture(p.kind)) {
         const [duties, exceptions, extras, lectures, lexc] = await Promise.all([
           listDuties(p.id), listExceptions(p.id), listExtras(p.id), listLectures(p.id), listLectureExceptions(p.id),
@@ -463,7 +540,7 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
           p,
           closed,
           roster: (d: string) => lectureRoster(d, duties, exceptions, extras, names),
-          lectures: (d: string) => lecturesOn(d, lectures, lexc),
+          lectures: (d: string) => [...lecturesOn(d, lectures, lexc), ...recurring(d)],
         }
       }
       const slots = await listDaily(p.id)
@@ -472,7 +549,7 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
         closed,
         roster: (d: string): RosterEntry[] =>
           slots.filter((s) => s.date === d).map((s) => ({ staff_id: s.staff_id, label: 'Dienst' })),
-        lectures: (): DayLecture[] => [],
+        lectures: recurring,
       }
     }),
   )
