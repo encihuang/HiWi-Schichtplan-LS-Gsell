@@ -1,4 +1,5 @@
 import 'server-only'
+import { canStoreSecrets, seal } from './crypto'
 
 // Postgres: Neon, wenn DATABASE_URL gesetzt ist, sonst lokal eine PGlite-Datenbank
 // in .data/pglite (nur für die Entwicklung).
@@ -142,6 +143,24 @@ create table if not exists reminder_sent (
   sent_at timestamptz not null default now(),
   primary key (mail_id, staff_id, date)
 );
+create table if not exists login_codes (
+  id text primary key,
+  staff_id int not null references staff(id) on delete cascade,
+  purpose text not null check (purpose in ('login','reset')),
+  code_hash text not null,
+  attempts int not null default 0,
+  verified boolean not null default false,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists login_codes_staff on login_codes (staff_id, created_at);
+create table if not exists sessions (
+  id text primary key,
+  staff_id int not null references staff(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null
+);
+create index if not exists sessions_staff on sessions (staff_id);
 create table if not exists changelog (
   id serial primary key,
   period_id int references periods(id) on delete cascade,
@@ -175,6 +194,16 @@ const MIGRATIONS = [
   `alter table staff add column if not exists role text not null default 'hiwi'`,
   // frühere Erinnerung je Person (Werktage vorher); wird einmalig in eine automatische E-Mail „Erinnerung“ übernommen
   `alter table staff add column if not exists reminder_days int`,
+  // Anmeldung: eigenes Passwort (scrypt) + Code per E-Mail; Verwaltungsrechte je Person
+  `alter table staff add column if not exists password_hash text`,
+  `alter table staff add column if not exists is_admin boolean not null default false`,
+  `alter table staff add column if not exists failed_logins int not null default 0`,
+  `alter table staff add column if not exists locked_until timestamptz`,
+  // Kalender-Abo: nur noch SHA-256 des Schlüssels zum Nachschlagen, der Schlüssel selbst verschlüsselt
+  `alter table staff add column if not exists calendar_hash text`,
+  `create unique index if not exists staff_calendar_hash on staff (calendar_hash)`,
+  // Abwesenheiten: keine Unterscheidung mehr nach Art; Notiz verschlüsselt (AES-256-GCM)
+  `alter table absences alter column kind set default 'sonstiges'`,
   // Ansprechpartner/Support (weekly_slots) -> Dienstarten: allein = Alle Aufgaben, zu zweit = Geteilt
   `do $$ begin
     if to_regclass('weekly_slots') is not null then
@@ -214,6 +243,12 @@ async function connect(): Promise<Query> {
     if (done) continue
     await q(stmt)
     await q('insert into schema_migrations (name) values ($1) on conflict do nothing', [name])
+  }
+  // Notizen zu Abwesenheiten aus früheren Versionen verschlüsseln (sobald ein Schlüssel gesetzt ist)
+  if (canStoreSecrets()) {
+    for (const r of await q(`select id, note from absences where note <> '' and note not like 'v1:%'`)) {
+      await q('update absences set note = $2 where id = $1', [r.id, seal(String(r.note))])
+    }
   }
   return q
 }

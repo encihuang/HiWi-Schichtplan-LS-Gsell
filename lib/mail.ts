@@ -3,7 +3,7 @@ import nodemailer from 'nodemailer'
 import { absenceRange } from './absence-mail'
 import { APP_TITLE, CHAIR } from './brand'
 import {
-  ABSENCE_LABELS, lectureText, listAbsences, listAppointments, listStaff, loadDays, ROLE_LABELS, type Absence,
+  ABSENCE_LABEL, lectureText, listAbsences, listNewAbsences, listAppointments, listStaff, loadDays, ROLE_LABELS, type Absence,
 } from './data'
 import { addDays, berlinHour, formatDate, formatDateTime, todayIso, WEEKDAYS, weekday } from './dates'
 import { query } from './db'
@@ -169,6 +169,13 @@ export async function loadMailConfig() {
   return { smtp, password: m.password ? decrypt(m.password) : null }
 }
 
+/** E-Mail-Versand vollständig eingerichtet (in der lokalen Entwicklung reicht die Konsole, siehe lib/auth.ts) */
+export async function smtpReady() {
+  const { smtp, password } = await loadMailConfig()
+  if (smtp.host && smtp.user && smtp.from && password) return true
+  return process.env.NODE_ENV !== 'production'
+}
+
 /** Empfänger-Adressen: ausgewählte aktive Personen mit E-Mail plus weitere Adressen */
 export async function recipientsOf(mail: AutoMail) {
   const staff = await listStaff()
@@ -256,21 +263,15 @@ export async function buildMail(mail: AutoMail, state: MailState, origin: string
     const s = byId.get(id)
     return s ? `${s.name} (${ROLE_LABELS[s.role]})` : '?'
   }
-  const absenceLine = (a: Absence) => `${who(a.staff_id)}: ${ABSENCE_LABELS[a.kind]} ${absenceRange(a)}${a.note ? ` – ${a.note}` : ''}`
+  const absenceLine = (a: Absence) => `${who(a.staff_id)}: ${ABSENCE_LABEL} ${absenceRange(a)}${a.note ? ` – ${a.note}` : ''}`
 
-  const fresh = state.lastSent
-    ? await query<Absence>(
-        `select id, staff_id, from_date, to_date, kind, note, created_by from absences
-         where created_at > $1 and to_date >= $2 order by from_date`,
-        [state.lastSent, today],
-      )
-    : []
+  const fresh = state.lastSent ? await listNewAbsences(state.lastSent, today) : []
 
   const blocks: Partial<Record<BlockKey, Block>> = {}
   if (uses(mail, 'abwesenheiten')) {
     const all = await listAbsences(today, until)
     blocks.abwesenheiten = {
-      title: `Abwesenheiten und Urlaube bis ${formatDate(until)}`,
+      title: `Abwesenheiten bis ${formatDate(until)}`,
       lines: all.length ? all.map(absenceLine) : ['Niemand eingetragen.'],
     }
   }
@@ -334,7 +335,7 @@ export async function buildMail(mail: AutoMail, state: MailState, origin: string
     bis: formatDate(until),
     wochen: String(mail.weeks),
     neu: String(fresh.length),
-    aenderung: change ?? 'Beispiel: Anna Muster: Urlaub 02.11.–03.11. eingetragen',
+    aenderung: change ?? 'Beispiel: Anna Muster: Abwesend 02.11.–03.11. eingetragen',
     link: `${origin}/uebersicht`,
   }
   const subject = render(mail.subject, values, {}).text.replace(/\s+/g, ' ').trim()

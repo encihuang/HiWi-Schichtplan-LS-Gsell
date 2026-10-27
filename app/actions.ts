@@ -10,16 +10,12 @@ import { DEFAULT_MAILS, type Topic } from '@/lib/mail-shared'
 import { encrypt, setSetting } from '@/lib/settings'
 import { sendTestReminder } from '@/lib/reminders'
 import {
-  ABSENCE_LABELS, addLog, AVAILABILITY_LABELS, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears, workdaysOf,
-  type AbsenceKind, type AvailabilityStatus, type DutyKind, type Role,
+  ABSENCE_LABEL, addLog, AVAILABILITY_LABELS, createYear, getAbsence, ROLES, DUTY_LABELS, getPeriod, getStaff, listClosedDays, listYears,
+  sealNote, workdaysOf, type AvailabilityStatus, type DutyKind, type Role,
 } from '@/lib/data'
 import { formatDate, PERIOD_KINDS, todayIso, WEEKDAYS, weekday, wsLecture, yearLabel, isLecture } from '@/lib/dates'
-import {
-  ACCESS_COOKIE, ADMIN_COOKIE, canEditOthers, currentStaff, isAdmin, PLAN_COOKIE, requireAdmin, requireShiftActor, requireStaff,
-  sha256, STAFF_COOKIE,
-} from '@/lib/session'
-
-const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax' as const, path: '/', maxAge: 60 * 60 * 24 * 365 }
+import { endSessionsOf } from '@/lib/auth'
+import { canEditOthers, currentStaff, isAdmin, mayPlan, PLAN_COOKIE, requireAdmin, requireShiftActor, requireStaff, secureCookie } from '@/lib/session'
 
 const num = (fd: FormData, k: string) => Number(fd.get(k))
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim()
@@ -29,36 +25,24 @@ async function actorName() {
   return (await currentStaff())?.name ?? 'Verwaltung'
 }
 
-// --- Anmeldung ---------------------------------------------------------------
+// --- Zugang (Verwaltung) ---------------------------------------------------------
 
-export async function selectStaff(fd: FormData) {
-  const s = await getStaff(num(fd, 'id'))
-  if (!s?.active) redirect('/')
-  ;(await cookies()).set(STAFF_COOKIE, String(s.id), COOKIE_OPTS)
-  redirect(s.role === 'hiwi' ? '/plan' : '/abwesenheiten')
-}
-
-export async function switchStaff() {
-  ;(await cookies()).delete(STAFF_COOKIE)
-  redirect('/')
-}
-
-export async function login(_: string | null, fd: FormData) {
-  const kind = str(fd, 'kind') === 'admin' ? 'admin' : 'access'
-  const expected = kind === 'admin' ? process.env.ADMIN_PASSWORD : process.env.APP_PASSWORD
-  const next = str(fd, 'next')
-  if (!expected || str(fd, 'password') !== expected) return 'Falsches Passwort.'
-  ;(await cookies()).set(kind === 'admin' ? ADMIN_COOKIE : ACCESS_COOKIE, await sha256(expected), COOKIE_OPTS)
-  redirect(next.startsWith('/') ? next : '/')
-}
-
-/** Kalender-Abo: neue geheime Adresse; die alte funktioniert danach nicht mehr. */
 /** Kalender-Adresse einer Person ungültig machen (Einstellungen); beim nächsten Öffnen von „Kalender“ gibt es eine neue */
 export async function resetCalendarToken(fd: FormData) {
   await requireAdmin()
-  const [s] = await query<{ name: string }>('update staff set calendar_token = null where id = $1 returning name', [num(fd, 'id')])
+  const [s] = await query<{ name: string }>('update staff set calendar_token = null, calendar_hash = null where id = $1 returning name', [num(fd, 'id')])
   if (s) await addLog(null, await actorName(), `Kalender-Adresse von ${s.name} zurückgesetzt`)
   revalidatePath('/', 'layout')
+}
+
+/** Person auf allen Geräten abmelden */
+export async function endStaffSessions(fd: FormData) {
+  await requireAdmin()
+  const s = await getStaff(num(fd, 'id'))
+  if (!s) return
+  await endSessionsOf(s.id)
+  await addLog(null, await actorName(), `${s.name} auf allen Geräten abgemeldet`)
+  revalidatePath('/verwaltung')
 }
 
 // --- Planungsmodus -------------------------------------------------------------
@@ -68,9 +52,11 @@ export async function setPlanningMode(fd: FormData) {
   const on = str(fd, 'on') === '1'
   const back = str(fd, 'back')
   const next = back.startsWith('/') ? back : '/plan'
-  if (on && !(await isAdmin())) redirect(`/login?kind=admin&next=${encodeURIComponent(next)}`)
+  // alle Hilfskräfte und wer Verwaltungsrechte hat
+  const me = await currentStaff()
+  if (on && !(me && mayPlan(me))) redirect(next)
   const jar = await cookies()
-  if (on) jar.set(PLAN_COOKIE, '1', { httpOnly: true, sameSite: 'lax', path: '/' })
+  if (on) jar.set(PLAN_COOKIE, '1', secureCookie)
   else jar.delete(PLAN_COOKIE)
   revalidatePath('/', 'layout')
 }
@@ -78,6 +64,7 @@ export async function setPlanningMode(fd: FormData) {
 // --- Jahre -------------------------------------------------------------------
 
 export async function addYear() {
+  await requireStaff()
   const years = await listYears()
   const today = todayIso()
   // Erstes Jahr = das laufende (beginnt mit der WiSe-Vorlesungszeit).
@@ -455,19 +442,18 @@ export async function addAbsence(fd: FormData) {
   const me = await requireStaff()
   const from = isoOrNull(str(fd, 'from'))
   const to = isoOrNull(str(fd, 'to')) ?? from
-  const kind = str(fd, 'kind')
-  if (!from || !to || from > to || !(kind in ABSENCE_LABELS)) return
+  if (!from || !to || from > to) return
   const personId = num(fd, 'person')
   const person = personId && personId !== me.id && (await isAdmin()) ? await getStaff(personId) : me
   if (!person) return
   const [a] = await query<{ id: number }>(
-    'insert into absences (staff_id, from_date, to_date, kind, note, created_by) values ($1, $2, $3, $4, $5, $6) returning id',
-    [person.id, from, to, kind, str(fd, 'note'), me.name],
+    'insert into absences (staff_id, from_date, to_date, note, created_by) values ($1, $2, $3, $4, $5) returning id',
+    [person.id, from, to, sealNote(str(fd, 'note')), me.name],
   )
   const range = from === to ? formatDate(from) : `${formatDate(from)}–${formatDate(to)}`
   const forWho = person.id === me.id ? '' : ` für ${person.name}`
-  await addLog(null, me.name, `${ABSENCE_LABELS[kind as AbsenceKind]} ${range} eingetragen${forWho}`)
-  if (to >= todayIso()) await notifyChange('absences', `${person.name}: ${ABSENCE_LABELS[kind as AbsenceKind]} ${range} eingetragen`)
+  await addLog(null, me.name, `${ABSENCE_LABEL} ${range} eingetragen${forWho}`)
+  if (to >= todayIso()) await notifyChange('absences', `${person.name}: ${ABSENCE_LABEL} ${range} eingetragen`)
   revalidatePath('/', 'layout')
   // nur Pfade dieser App
   const back = str(fd, 'back')
@@ -481,10 +467,10 @@ export async function deleteAbsence(fd: FormData) {
   if (!a || (a.staff_id !== me.id && !(await isAdmin()))) return
   await query('delete from absences where id = $1', [a.id])
   const who = a.staff_id === me.id ? '' : ` (${(await getStaff(a.staff_id))?.name})`
-  await addLog(null, me.name, `${ABSENCE_LABELS[a.kind]} ${formatDate(a.from_date)}–${formatDate(a.to_date)} gelöscht${who}`)
+  await addLog(null, me.name, `${ABSENCE_LABEL} ${formatDate(a.from_date)}–${formatDate(a.to_date)} gelöscht${who}`)
   if (a.to_date >= todayIso()) {
     const person = a.staff_id === me.id ? me.name : (await getStaff(a.staff_id))?.name
-    await notifyChange('absences', `${person}: ${ABSENCE_LABELS[a.kind]} ${formatDate(a.from_date)}–${formatDate(a.to_date)} gelöscht`)
+    await notifyChange('absences', `${person}: ${ABSENCE_LABEL} ${formatDate(a.from_date)}–${formatDate(a.to_date)} gelöscht`)
   }
   revalidatePath('/', 'layout')
 }
@@ -583,43 +569,78 @@ export async function toggleDaily(fd: FormData) {
 
 // --- Einstellungen -----------------------------------------------------------
 
-export async function saveStaff(fd: FormData) {
+// Verwaltung: Personen nur aufnehmen und entfernen. Name, Wochenstunden usw. trägt jede Person selbst ein.
+
+async function emailTaken(email: string, id = 0) {
+  return (await query('select 1 from staff where lower(email) = $1 and id <> $2', [email, id])).length > 0
+}
+
+/** Neue Person: Name, dienstliche E-Mail (= Anmeldung), Bereich, ggf. Verwaltungsrechte */
+export async function addStaff(fd: FormData) {
+  await requireAdmin()
+  const name = str(fd, 'name')
+  const email = str(fd, 'email').toLowerCase()
+  const role = (ROLES as string[]).includes(str(fd, 'role')) ? (str(fd, 'role') as Role) : 'hiwi'
+  if (!name || !EMAIL.test(email) || (await emailTaken(email))) return
+  const done = await query(
+    `insert into staff (name, active, email, role, is_admin) values ($1, true, $2, $3, $4) on conflict (name) do nothing returning 1`,
+    [name, email, role, fd.get('admin') === 'on'],
+  )
+  if (done.length) await addLog(null, await actorName(), `${name} aufgenommen`)
+  revalidatePath('/', 'layout')
+}
+
+/** Dienstliche E-Mail nachtragen (nur wenn noch keine hinterlegt ist – sonst ist keine Anmeldung möglich) */
+export async function addStaffEmail(fd: FormData) {
+  await requireAdmin()
+  const email = str(fd, 'email').toLowerCase()
+  const id = num(fd, 'id')
+  if (!EMAIL.test(email) || (await emailTaken(email, id))) return
+  const [s] = await query<{ name: string }>(`update staff set email = $2 where id = $1 and email = '' returning name`, [id, email])
+  if (s) await addLog(null, await actorName(), `E-Mail von ${s.name} nachgetragen`)
+  revalidatePath('/', 'layout')
+}
+
+/** Entfernen: nicht mehr aktiv, abgemeldet – Schichten, Abwesenheiten und Verlauf bleiben erhalten */
+export async function removeStaff(fd: FormData) {
   await requireAdmin()
   const id = num(fd, 'id')
-  const name = str(fd, 'name')
-  const hours = Math.max(0, Number(str(fd, 'hours').replace(',', '.')) || 0)
-  const start = isoOrNull(str(fd, 'start'))
-  const end = isoOrNull(str(fd, 'end'))
-  const active = fd.get('active') === 'on'
-  const email = str(fd, 'email')
-  const role = (ROLES as string[]).includes(str(fd, 'role')) ? (str(fd, 'role') as Role) : 'hiwi'
-  if (!name) return
-  if (email && !EMAIL.test(email)) return
-  if (id) {
-    await query(
-      'update staff set name = $2, hours_per_week = $3, start_date = $4, end_date = $5, active = $6, email = $7, role = $8 where id = $1',
-      [id, name, hours, start, end, active, email, role],
-    )
-    await addLog(null, await actorName(), `${name} geändert`)
-  } else {
-    await query(
-      `insert into staff (name, hours_per_week, start_date, end_date, active, email, role) values ($1, $2, $3, $4, true, $5, $6)
-       on conflict (name) do nothing`,
-      [name, hours, start, end, email, role],
-    )
-    await addLog(null, await actorName(), `${name} hinzugefügt`)
-  }
+  if (id === (await currentStaff())?.id) return
+  const [s] = await query<{ name: string }>('update staff set active = false, is_admin = false where id = $1 returning name', [id])
+  if (!s) return
+  await endSessionsOf(id)
+  await addLog(null, await actorName(), `${s.name} entfernt`)
+  revalidatePath('/', 'layout')
+}
+
+/** Entfernte Person wieder aufnehmen */
+export async function restoreStaff(fd: FormData) {
+  await requireAdmin()
+  const [s] = await query<{ name: string }>('update staff set active = true where id = $1 returning name', [num(fd, 'id')])
+  if (s) await addLog(null, await actorName(), `${s.name} wieder aufgenommen`)
+  revalidatePath('/', 'layout')
+}
+
+/** Verwaltungsrechte geben oder entziehen (nicht sich selbst) */
+export async function setStaffAdmin(fd: FormData) {
+  await requireAdmin()
+  const id = num(fd, 'id')
+  if (id === (await currentStaff())?.id) return
+  const on = str(fd, 'on') === '1'
+  const [s] = await query<{ name: string }>('update staff set is_admin = $2 where id = $1 and active returning name', [id, on])
+  if (s) await addLog(null, await actorName(), `${s.name}: Verwaltungsrechte ${on ? 'gegeben' : 'entzogen'}`)
   revalidatePath('/', 'layout')
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+/** Endgültig löschen (nur bereits entfernte Personen) – löscht auch alle Schichten und Abwesenheiten */
 export async function deleteStaff(fd: FormData) {
   await requireAdmin()
   const s = await getStaff(num(fd, 'id'))
-  if (!s) return
+  if (!s || s.active) return
   await query('delete from staff where id = $1', [s.id])
-  await addLog(null, await actorName(), `${s.name} gelöscht`)
+  await addLog(null, await actorName(), `${s.name} endgültig gelöscht`)
   revalidatePath('/', 'layout')
 }
 
@@ -638,7 +659,7 @@ export async function saveSmtp(fd: FormData) {
   if (fd.get('clearPassword') === 'on') await setSetting('smtp.password', null)
   else if (password) await setSetting('smtp.password', encrypt(password))
   await addLog(null, await actorName(), 'Absender-Konto für E-Mails geändert')
-  revalidatePath('/einstellungen')
+  revalidatePath('/verwaltung')
 }
 
 const text = (fd: FormData, k: string) => String(fd.get(k) ?? '').replace(/\r\n/g, '\n').trim()
@@ -656,7 +677,8 @@ export async function saveMail(fd: FormData) {
     id,
     kind,
     name: str(fd, 'name') || DEFAULT_MAILS[kind].name,
-    staffIds: fd.getAll('staff').map(Number).filter(Boolean),
+    // Erinnerungen: wer sie bekommt, entscheidet jede Hilfskraft selbst
+    staffIds: kind === 'reminder' ? mails[i].staffIds : fd.getAll('staff').map(Number).filter(Boolean),
     extra: str(fd, 'extra').split(/[\s,;]+/).filter((x) => EMAIL.test(x)),
     frequency: frequency === 'daily' || frequency === 'weekly' ? frequency : 'off',
     weekday: num(fd, 'weekday'),
@@ -683,8 +705,8 @@ export async function addMail(fd: FormData) {
   mails.push({ ...DEFAULT_MAILS[kind], id })
   await saveMails(mails)
   await addLog(null, await actorName(), 'Automatische E-Mail angelegt')
-  revalidatePath('/einstellungen')
-  redirect(`/einstellungen#mail-${id}`)
+  revalidatePath('/verwaltung')
+  redirect(`/verwaltung#mail-${id}`)
 }
 
 export async function deleteMail(fd: FormData) {
@@ -731,7 +753,7 @@ export async function sendTestMail(fd: FormData) {
   // Erinnerung: Beispiel für die erste ausgewählte Hilfskraft an die Absender-Adresse
   if ((await loadMails()).some((m) => m.id === id && m.kind === 'reminder')) await sendTestReminder(await origin(), id)
   else await runMails(await origin(), id)
-  revalidatePath('/einstellungen')
+  revalidatePath('/verwaltung')
 }
 
 export async function saveYearDates(fd: FormData) {

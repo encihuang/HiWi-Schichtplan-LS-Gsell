@@ -2,13 +2,13 @@ import Link from 'next/link'
 import { MailLink } from '@/components/mail-link'
 import { query } from '@/lib/db'
 import {
-  ABSENCE_LABELS, canSeePlan, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
+  ABSENCE_LABEL, canSeePlan, listAbsences, listPeriods, listSpecialTasks, listStaff, loadDays, ROLE_LABELS, type Absence,
   type Appointment, lectureText, type DayLecture,
   type Period, type Role, type RosterEntry, type Staff,
 } from '@/lib/data'
 import { absenceRange } from '@/lib/absence-mail'
 import { addDays, formatDate, MONTHS, PERIOD_LABELS, todayIso, WEEKDAYS, weekday } from '@/lib/dates'
-import { currentStaff } from '@/lib/session'
+import { requireUser } from '@/lib/session'
 import { DownloadIcon } from '@/components/download-icon'
 
 export const dynamic = 'force-dynamic'
@@ -60,7 +60,6 @@ function Away({ items, names, large = false }: { items: Absence[]; names: Map<nu
         <span key={a.id} title={a.note || undefined}>
           {i > 0 && ', '}
           {names.get(a.staff_id)?.name ?? '?'}
-          {large && ` (${ABSENCE_LABELS[a.kind]})`}
         </span>
       ))}
     </div>
@@ -212,7 +211,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const end = lastShown ? lastShown.end_date : addDays(monday, weeks * 7 - 1)
   const absencesUntil = all ? end : addDays(today, Math.max(8 * 7, weeks * 7))
   const [days, everyone, absences, me, yearPeriods] = await Promise.all([
-    loadDays(monday, end), listStaff(true), listAbsences(today, absencesUntil), currentStaff(),
+    loadDays(monday, end), listStaff(true), listAbsences(today, absencesUntil), requireUser('/uebersicht'),
     period ? listPeriods(period.year_id) : Promise.resolve([]),
   ])
   const expanded = all || weeks > WEEKS
@@ -353,7 +352,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
 
       <section>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold text-lmu-darker">Abwesenheiten und Urlaube (bis {formatDate(absencesUntil)})</h2>
+          <h2 className="text-lg font-semibold text-lmu-darker">Abwesenheiten (bis {formatDate(absencesUntil)})</h2>
           <a href="/abwesenheiten" className="text-sm text-lmu underline hover:text-lmu-darker">Abwesenheit eintragen</a>
         </div>
         {absences.length === 0 ? (
@@ -370,7 +369,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
                     {s && <span className="block text-xs text-neutral-500">{ROLE_LABELS[s.role]}</span>}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className={now ? 'font-semibold text-amber-800' : ''}>{ABSENCE_LABELS[a.kind]}</span>{' '}
+                    <span className={now ? 'font-semibold text-amber-800' : ''}>{ABSENCE_LABEL}</span>{' '}
                     <span className="tabular-nums">{absenceRange(a)}</span>
                     {now && <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">jetzt</span>}
                     {a.note && <span className="block text-neutral-600">{a.note}</span>}

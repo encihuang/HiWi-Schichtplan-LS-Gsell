@@ -1,4 +1,4 @@
-import { ABSENCE_LABELS, type Absence } from './data'
+import { ABSENCE_LABEL, type Absence } from './data'
 import { formatDate, WEEKDAYS_SHORT, weekday } from './dates'
 
 const day = (d: string) => `${WEEKDAYS_SHORT[weekday(d) - 1]}, ${formatDate(d)}`
@@ -11,10 +11,9 @@ export type AbsenceTexts = { absenceGreeting: string; absenceIntro: string; abse
 
 /** mailto-Link ans Sekretariat mit den Abwesenheiten einer Person (Texte aus den Einstellungen) */
 export function absenceMailto(to: string, person: string, sender: string, items: Absence[], texts: AbsenceTexts) {
-  const lines = items.map((a) => `- ${ABSENCE_LABELS[a.kind]}: ${absenceRange(a)}${a.note ? ` (${a.note})` : ''}`)
+  const lines = items.map((a) => `- ${ABSENCE_LABEL}: ${absenceRange(a)}${a.note ? ` (${a.note})` : ''}`)
   const self = person === sender
-  const kinds = [...new Set(items.map((a) => ABSENCE_LABELS[a.kind]))].join(' / ')
-  const subject = `Abwesenheit ${person}: ${kinds}${items.length === 1 ? ` ${absenceRange(items[0])}` : ''}`
+  const subject = `Abwesenheit ${person}${items.length === 1 ? `: ${absenceRange(items[0])}` : ''}`
   const intro = self ? texts.absenceIntro : `${person} ist zu folgenden Zeiten abwesend:`
   const body = absenceBody(texts, intro, lines, sender)
   return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
