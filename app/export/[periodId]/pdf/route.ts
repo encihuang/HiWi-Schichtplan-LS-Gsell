@@ -11,7 +11,7 @@ const GREEN: [number, number, number] = [0, 136, 58]
 
 export async function GET(_: Request, ctx: RouteContext<'/export/[periodId]/pdf'>) {
   const me = await currentStaff()
-  if (!me) return new Response('Bitte zuerst auswählen, wer du bist.', { status: 401 })
+  if (!me) return new Response('Bitte anmelden.', { status: 401 })
   if (!canSeePlan(me)) return new Response('Kein Zugriff auf den Schichtplan.', { status: 403 })
   const data = await loadExport(Number((await ctx.params).periodId))
   if (!data) return new Response('Nicht gefunden', { status: 404 })

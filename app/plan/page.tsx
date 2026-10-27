@@ -1,15 +1,14 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { canSeePlan, listPeriods, listYears } from '@/lib/data'
-import { currentStaff } from '@/lib/session'
+import { requireUser } from '@/lib/session'
 import { formatDate, PERIOD_LABELS, todayIso, yearLabel } from '@/lib/dates'
 import { addYear } from '../actions'
 
 export const dynamic = 'force-dynamic'
 
 export default async function YearPicker() {
-  const me = await currentStaff()
-  if (!me) redirect('/')
+  const me = await requireUser('/plan')
   if (!canSeePlan(me)) redirect('/abwesenheiten')
   const years = await listYears()
   const periods = await Promise.all(years.map((y) => listPeriods(y.id)))

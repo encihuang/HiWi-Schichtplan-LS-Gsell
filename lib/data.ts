@@ -1,6 +1,6 @@
 import 'server-only'
-import { randomBytes } from 'node:crypto'
 import { query } from './db'
+import { canStoreSecrets, randomToken, seal, sha256Hex, unseal } from './crypto'
 import {
   academicYearPeriods, addDays, christmasBreakBetween, eachDay, holidaysBetween, isLecture, isWeekend, PERIOD_KINDS, todayIso,
   weekday, type PeriodKind,
@@ -15,6 +15,8 @@ export type Staff = {
   active: boolean
   email: string
   role: Role
+  /** darf die Verwaltung (Personen, E-Mails, Studienjahre) und den Planungsmodus öffnen */
+  is_admin: boolean
 }
 export type Role = 'hiwi' | 'wimi' | 'rat' | 'sekretariat' | 'prof'
 export const ROLE_LABELS: Record<Role, string> = {
@@ -75,9 +77,11 @@ export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
   nein: 'Kein Dienst möglich',
 }
 
+const STAFF_COLS = 'id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role, is_admin'
+
 export async function listStaff(onlyActive = false) {
   const rows = await query<Staff>(
-    `select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role
+    `select ${STAFF_COLS}
      from staff ${onlyActive ? 'where active' : ''} order by name`,
   )
   return rows
@@ -85,7 +89,7 @@ export async function listStaff(onlyActive = false) {
 
 export async function getStaff(id: number) {
   const [s] = await query<Staff>(
-    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role from staff where id = $1',
+    `select ${STAFF_COLS} from staff where id = $1`,
     [id],
   )
   return s
@@ -198,30 +202,39 @@ export const listDaily = (periodId: number) =>
 
 // --- Abwesenheiten und Urlaube ---------------------------------------------------
 
-export type AbsenceKind = 'urlaub' | 'krank' | 'dienstreise' | 'sonstiges'
-export const ABSENCE_LABELS: Record<AbsenceKind, string> = {
-  urlaub: 'Urlaub',
-  krank: 'Krank',
-  dienstreise: 'Dienstreise / Tagung',
-  sonstiges: 'Sonstige Abwesenheit',
-}
-export type Absence = { id: number; staff_id: number; from_date: string; to_date: string; kind: AbsenceKind; note: string; created_by: string }
+// Keine Unterscheidung nach Art (Urlaub, Krankheit …): angezeigt wird nur „Abwesend“.
+// Die Spalte absences.kind bleibt für frühere Einträge bestehen, neue bekommen „sonstiges“.
+export const ABSENCE_LABEL = 'Abwesend'
+export type Absence = { id: number; staff_id: number; from_date: string; to_date: string; note: string; created_by: string }
+
+const ABSENCE_COLS = 'id, staff_id, from_date, to_date, note, created_by'
+/** Notizen sind verschlüsselt gespeichert */
+export const readAbsence = (a: Absence): Absence => ({ ...a, note: unseal(a.note) })
+export const sealNote = seal
 
 /** Abwesenheiten, die den Zeitraum from–to berühren (optional nur einer Person) */
-export const listAbsences = (from: string, to: string, staffId?: number) =>
-  query<Absence>(
-    `select id, staff_id, from_date, to_date, kind, note, created_by from absences
-     where to_date >= $1 and from_date <= $2 ${staffId ? 'and staff_id = $3' : ''}
-     order by from_date, to_date, id`,
-    staffId ? [from, to, staffId] : [from, to],
-  )
+export const listAbsences = async (from: string, to: string, staffId?: number) =>
+  (
+    await query<Absence>(
+      `select ${ABSENCE_COLS} from absences
+       where to_date >= $1 and from_date <= $2 ${staffId ? 'and staff_id = $3' : ''}
+       order by from_date, to_date, id`,
+      staffId ? [from, to, staffId] : [from, to],
+    )
+  ).map(readAbsence)
+
+/** seit since neu eingetragene, noch nicht vorbei */
+export const listNewAbsences = async (since: string, today: string) =>
+  (
+    await query<Absence>(
+      `select ${ABSENCE_COLS} from absences where created_at > $1 and to_date >= $2 order by from_date`,
+      [since, today],
+    )
+  ).map(readAbsence)
 
 export async function getAbsence(id: number) {
-  const [a] = await query<Absence>(
-    'select id, staff_id, from_date, to_date, kind, note, created_by from absences where id = $1',
-    [id],
-  )
-  return a
+  const [a] = await query<Absence>(`select ${ABSENCE_COLS} from absences where id = $1`, [id])
+  return a && readAbsence(a)
 }
 
 /** Sekretariat (Empfänger der Abwesenheitsmeldungen): erste aktive Person mit E-Mail */
@@ -484,21 +497,32 @@ export async function loadDays(from: string, to: string): Promise<DayInfo[]> {
 
 // --- Kalender-Abo ---------------------------------------------------------------
 
-/** Geheimer Schlüssel für die Kalender-Abo-Adresse einer Person; wird bei Bedarf angelegt. */
-export async function calendarToken(staffId: number, renew = false) {
-  const fresh = randomBytes(18).toString('base64url')
-  const [r] = await query<{ calendar_token: string }>(
-    `update staff set calendar_token = ${renew ? '$2' : 'coalesce(calendar_token, $2)'} where id = $1 returning calendar_token`,
-    [staffId, fresh],
+/**
+ * Geheimer Schlüssel für die Kalender-Abo-Adresse einer Person; wird bei Bedarf angelegt.
+ * Gespeichert: SHA-256 zum Nachschlagen (calendar_hash) und der Schlüssel verschlüsselt zum Anzeigen (calendar_token).
+ */
+export async function calendarToken(staffId: number) {
+  const [r] = await query<{ calendar_token: string | null; calendar_hash: string | null }>(
+    'select calendar_token, calendar_hash from staff where id = $1',
+    [staffId],
   )
-  return r?.calendar_token ?? null
+  if (!r) return null
+  const old = r.calendar_token ? unseal(r.calendar_token) : ''
+  // frühere, unverschlüsselt gespeicherte Schlüssel weiterverwenden (bestehende Abos funktionieren weiter)
+  const token = /^[\w-]{16,}$/.test(old) ? old : randomToken(18)
+  const plain = r.calendar_token !== null && !r.calendar_token.startsWith('v1:')
+  if (r.calendar_hash !== sha256Hex(token) || (plain && canStoreSecrets())) {
+    await query('update staff set calendar_token = $2, calendar_hash = $3 where id = $1', [staffId, seal(token), sha256Hex(token)])
+  }
+  return token
 }
 
 export async function staffByCalendarToken(token: string) {
   if (!/^[\w-]{16,}$/.test(token)) return undefined
   const [s] = await query<Staff>(
-    'select id, name, hours_per_week::float as hours_per_week, start_date, end_date, active, email, role from staff where calendar_token = $1',
-    [token],
+    // calendar_token = $2: noch nicht umgestellter Schlüssel aus früheren Versionen
+    `select ${STAFF_COLS} from staff where calendar_hash = $1 or (calendar_hash is null and calendar_token = $2)`,
+    [sha256Hex(token), token],
   )
   return s
 }

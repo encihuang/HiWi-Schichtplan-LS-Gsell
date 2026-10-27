@@ -6,7 +6,7 @@ import { query } from './db'
 import { loadMailConfig, loadMails, send, setState } from './mail'
 import type { AutoMail } from './mail-shared'
 
-// Erinnerung an Hilfskräfte vor ihrem Dienst: automatische E-Mails der Art „reminder“ (Einstellungen → Automatische E-Mails).
+// Erinnerung an Hilfskräfte vor ihrem Dienst: automatische E-Mails der Art „reminder“ (Verwaltung → Automatische E-Mails; an- und abmelden in den eigenen Einstellungen).
 
 /** n-ter Werktag (Mo–Fr) ab d; n = 0: d selbst */
 function workdayAfter(d: string, n: number) {

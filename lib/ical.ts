@@ -2,7 +2,7 @@
 
 import { APP_TITLE } from './brand'
 import { addDays, PERIOD_LABELS } from './dates'
-import { ABSENCE_LABELS, type Absence, type Appointment, type DayInfo, type Lecture, type RosterEntry } from './data'
+import { ABSENCE_LABEL, type Absence, type Appointment, type DayInfo, type Lecture, type RosterEntry } from './data'
 
 const CRLF = '\r\n'
 const TZ = 'Europe/Berlin'
@@ -109,12 +109,11 @@ export function buildCalendar(
   // Abwesenheiten: im eigenen Feed die eigenen, im Gesamtplan alle
   for (const a of absences) {
     if (staffId !== null && a.staff_id !== staffId) continue
-    const kind = ABSENCE_LABELS[a.kind]
     events.push({
       uid: `abwesend-${a.id}`,
       date: a.from_date,
       end: a.to_date,
-      summary: staffId === null ? `Abwesend: ${names[a.staff_id] ?? '?'} (${kind})` : kind,
+      summary: staffId === null ? `${ABSENCE_LABEL}: ${names[a.staff_id] ?? '?'}` : ABSENCE_LABEL,
       description: a.note || undefined,
     })
   }

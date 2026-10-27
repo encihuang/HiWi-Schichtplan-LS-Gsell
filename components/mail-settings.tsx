@@ -41,32 +41,27 @@ function Recipients({ mail, staff }: { mail: AutoMail; staff: Staff[] }) {
   )
 }
 
-/** Erinnerung: nur Hilfskräfte mit eingeteiltem Dienst bzw. Aufgabe; ohne E-Mail nicht wählbar */
+/** Erinnerung: Hilfskräfte melden sich in ihren eigenen Einstellungen an und ab – hier nur zur Ansicht */
 function ReminderRecipients({ mail, staff, withDuties }: { mail: AutoMail; staff: Staff[]; withDuties: number[] }) {
-  const people = staff.filter((s) => s.active && s.role === 'hiwi' && withDuties.includes(s.id))
-  const all = people.filter((s) => s.email)
+  const people = staff.filter((s) => s.active && s.role === 'hiwi' && s.email && mail.staffIds.includes(s.id))
   return (
     <div className="text-sm">
       <p className={hint}>
-        Zur Auswahl stehen nur Hilfskräfte, die heute oder später einen Dienst, eine Vorlesung/Aufgabe oder eine Vertretung
-        übernommen haben. Jede bekommt ihre eigene Erinnerung – nur an Tagen, an denen sie etwas zu tun hat.
+        Ob sie diese Erinnerung bekommen, entscheidet jede Hilfskraft selbst unter „Einstellungen“. Verschickt wird nur an
+        Tagen, an denen sie einen Dienst, eine Vorlesung/Aufgabe oder eine Vertretung hat.
       </p>
       {people.length === 0 ? (
-        <p className="mt-2 text-neutral-500">Noch niemand mit eingeteiltem Dienst.</p>
+        <p className="mt-2 text-neutral-500">Noch niemand angemeldet.</p>
       ) : (
-        <ul className="mt-2 grid gap-x-4 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-2 flex flex-wrap gap-1.5">
           {people.map((s) => (
-            <li key={s.id}>
-              <label className={`flex items-center gap-2 ${s.email ? '' : 'text-neutral-400'}`} title={s.email || 'keine E-Mail hinterlegt'}>
-                <input type="checkbox" name="staff" value={s.id} disabled={!s.email} defaultChecked={mail.staffIds.includes(s.id)} className="accent-lmu" />
-                <span className="truncate">{s.name}</span>
-                {!s.email && <span className="text-xs">(keine E-Mail)</span>}
-              </label>
+            <li key={s.id} className={`rounded px-2 py-0.5 ${withDuties.includes(s.id) ? 'bg-lmu-light text-lmu-darker' : 'bg-neutral-100 text-neutral-500'}`}
+              title={withDuties.includes(s.id) ? undefined : 'derzeit kein Dienst eingeteilt'}>
+              {s.name}
             </li>
           ))}
         </ul>
       )}
-      {all.length > 1 && <p className={`${hint} mt-1`}>{all.length} Hilfskräfte mit E-Mail-Adresse wählbar.</p>}
     </div>
   )
 }
@@ -75,7 +70,7 @@ const TOPIC_SHORT: Record<Topic, string> = { absences: 'Abwesenheiten', appointm
 
 function schedule(m: AutoMail) {
   if (m.kind === 'reminder') {
-    return m.staffIds.length ? `Erinnerung ${DAYS_BEFORE_OPTIONS.find(([d]) => d === daysBeforeKey(m))?.[1] ?? ''}, ${m.hour}:00 Uhr` : 'aus'
+    return `Erinnerung ${DAYS_BEFORE_OPTIONS.find(([d]) => d === daysBeforeKey(m))?.[1] ?? ''}, ${m.hour}:00 Uhr`
   }
   if (m.kind === 'change') {
     if (!m.topics.length) return 'aus'
@@ -92,7 +87,7 @@ function MailCard({ mail, state, staff, withDuties }: { mail: AutoMail; state?: 
     : staff.filter((s) => s.active && s.email && mail.staffIds.includes(s.id)).length + mail.extra.length
   const result = state?.lastResult
   return (
-    <details id={`mail-${mail.id}`} className="group rounded-lg bg-white shadow-sm" open={!mail.staffIds.length && !mail.extra.length}>
+    <details id={`mail-${mail.id}`} className="group rounded-lg bg-white shadow-sm" open={mail.kind !== 'reminder' && !mail.staffIds.length && !mail.extra.length}>
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-3 [&::-webkit-details-marker]:hidden">
         <span className="text-neutral-400 transition-transform group-open:rotate-90">▸</span>
         <span className="font-semibold text-lmu-darker">{mail.name}</span>
@@ -117,7 +112,7 @@ function MailCard({ mail, state, staff, withDuties }: { mail: AutoMail; state?: 
           {reminder ? (
             <>
               <fieldset>
-                <legend className={legend}>Welche Hilfskräfte?</legend>
+                <legend className={legend}>Angemeldete Hilfskräfte</legend>
                 <ReminderRecipients mail={mail} staff={staff} withDuties={withDuties} />
               </fieldset>
               <fieldset className="grid gap-3 sm:grid-cols-3">
@@ -226,7 +221,7 @@ function MailCard({ mail, state, staff, withDuties }: { mail: AutoMail; state?: 
   )
 }
 
-/** Einstellungen: SMTP-Zugang, automatische E-Mails und Text der Abwesenheitsmeldung. Das Passwort verlässt nie den Server. */
+/** Verwaltung: SMTP-Zugang, automatische E-Mails und Text der Abwesenheitsmeldung. Das Passwort verlässt nie den Server. */
 export function MailSettings({ smtp, mails, states, staff, withDuties, absenceTexts, canStoreSecrets, passwordReadable }: {
   smtp: SmtpConfig
   mails: AutoMail[]
@@ -282,7 +277,7 @@ export function MailSettings({ smtp, mails, states, staff, withDuties, absenceTe
               <span className={hint}>
                 {canStoreSecrets
                   ? 'Wird verschlüsselt gespeichert und nie wieder angezeigt.'
-                  : 'Zum Speichern bitte zuerst SECRET_KEY (oder ADMIN_PASSWORD) in den Umgebungsvariablen setzen.'}
+                  : 'Zum Speichern bitte zuerst SECRET_KEY in den Umgebungsvariablen setzen.'}
               </span>
               {smtp.hasPassword && !passwordReadable && (
                 <span className="text-xs font-semibold text-red-700">
@@ -367,7 +362,7 @@ export function MailSettings({ smtp, mails, states, staff, withDuties, absenceTe
           <div className="grid content-start gap-1 text-sm">
             <span>Beispiel (gespeicherte Fassung)</span>
             <pre className="whitespace-pre-wrap rounded border border-neutral-200 bg-neutral-50 p-3 font-sans text-sm text-neutral-800">
-              {absenceBody(absenceTexts, absenceTexts.absenceIntro, ['- Urlaub: Mo, 02.11.2026 – Fr, 06.11.2026'], 'Anna Muster')}
+              {absenceBody(absenceTexts, absenceTexts.absenceIntro, ['- Abwesend: Mo, 02.11.2026 – Fr, 06.11.2026'], 'Anna Muster')}
             </pre>
           </div>
         </form>

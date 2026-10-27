@@ -4,7 +4,7 @@ import {
   calcDaily, calcWeekly, getYear, listAppointments, listAvailability, listClosedDays, listDaily, listDuties, listLectureExceptions, listLectures, listLog,
   canSeePlan, isHiwi, listExceptions, listExtras, listPeriods, listSpecialTasks, listStaff,
 } from '@/lib/data'
-import { canEditOthers, currentStaff } from '@/lib/session'
+import { canEditOthers, mayPlan, requireUser } from '@/lib/session'
 import { formatDate, formatDateTime, isLecture, PERIOD_LABELS, todayIso, yearLabel } from '@/lib/dates'
 import { WeeklyPlan } from '@/components/weekly-plan'
 import { DateExceptions } from '@/components/date-exceptions'
@@ -30,9 +30,8 @@ export default async function PlanPage({
   const [{ yearId }, { tab, neu }] = await Promise.all([params, searchParams])
   // Parallel laden: jede Abfrage ist ein eigener Roundtrip zur Datenbank.
   const [me, year, periods] = await Promise.all([
-    currentStaff(), getYear(Number(yearId)), listPeriods(Number(yearId)),
+    requireUser(`/plan/${yearId}`), getYear(Number(yearId)), listPeriods(Number(yearId)),
   ])
-  if (!me) redirect('/')
   if (!canSeePlan(me)) redirect('/abwesenheiten')
   if (!year) notFound()
 
@@ -81,6 +80,7 @@ export default async function PlanPage({
           {yearLabel(year.start_year)}
         </h1>
         <div className="flex flex-wrap gap-2 text-sm no-print">
+          {mayPlan(me) && (
           <form action={setPlanningMode}>
             <input type="hidden" name="on" value={others ? '' : '1'} />
             <input type="hidden" name="back" value={here} />
@@ -92,13 +92,14 @@ export default async function PlanPage({
               {others ? 'Planungsmodus beenden' : 'Planungsmodus'}
             </SubmitButton>
           </form>
+          )}
           <a href={`/export/${period.id}/pdf`} className="inline-flex items-center gap-1.5 rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
             <DownloadIcon /> PDF herunterladen
           </a>
           <a href={`/export/${period.id}/xlsx`} className="inline-flex items-center gap-1.5 rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
             <DownloadIcon /> Excel herunterladen
           </a>
-          <Link href="/kalender" className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
+          <Link href="/einstellungen#kalender" className="rounded border border-lmu px-3 py-1.5 text-lmu-darker hover:bg-lmu-light">
             Kalender abonnieren
           </Link>
         </div>
@@ -189,7 +190,7 @@ export default async function PlanPage({
 
       {isHiwi(me) && (
         <section className="mt-6">
-          <h2 className="mb-3 text-lg font-semibold text-lmu-darker">Abwesenheiten und Urlaube</h2>
+          <h2 className="mb-3 text-lg font-semibold text-lmu-darker">Abwesenheiten</h2>
           <AbsencesPanel me={me} neu={neu} back={here} />
         </section>
       )}

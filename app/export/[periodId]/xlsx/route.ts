@@ -12,7 +12,7 @@ const border = { top: thin, left: thin, bottom: thin, right: thin }
 
 export async function GET(_: Request, ctx: RouteContext<'/export/[periodId]/xlsx'>) {
   const me = await currentStaff()
-  if (!me) return new Response('Bitte zuerst auswählen, wer du bist.', { status: 401 })
+  if (!me) return new Response('Bitte anmelden.', { status: 401 })
   if (!canSeePlan(me)) return new Response('Kein Zugriff auf den Schichtplan.', { status: 403 })
   const data = await loadExport(Number((await ctx.params).periodId))
   if (!data) return new Response('Nicht gefunden', { status: 404 })

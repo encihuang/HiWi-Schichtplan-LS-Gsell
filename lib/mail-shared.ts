@@ -51,7 +51,7 @@ export const PLACEHOLDERS = {
   bis: 'Ende der Vorschau',
   wochen: 'Vorschau in Wochen',
   neu: 'Anzahl seit der letzten E-Mail neu eingetragener Abwesenheiten',
-  aenderung: 'die Änderung, z. B. „Anna: Urlaub 02.11.–03.11.2026 eingetragen“ (nur bei Änderungen)',
+  aenderung: 'die Änderung, z. B. „Anna: Abwesend 02.11.–03.11.2026 eingetragen“ (nur bei Änderungen)',
   titel: 'Name der App',
   lehrstuhl: 'Name des Lehrstuhls',
   link: 'Link zur Übersicht',
@@ -59,7 +59,7 @@ export const PLACEHOLDERS = {
 
 /** Platzhalter, die durch eine Liste mit Überschrift ersetzt werden */
 export const BLOCK_PLACEHOLDERS = {
-  abwesenheiten: 'Abwesenheiten und Urlaube (Vorschau)',
+  abwesenheiten: 'Abwesenheiten (Vorschau)',
   neue_abwesenheiten: 'seit der letzten E-Mail neu eingetragene Abwesenheiten',
   abwesend_heute: 'wer heute abwesend ist',
   termine: 'Termine für alle (Vorschau)',
